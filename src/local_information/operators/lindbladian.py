@@ -14,6 +14,7 @@ from local_information.operators.operator import (
     construct_operator_dict,
     construct_lindbladian_dict,
     setup_onsite_L_operators,
+    setup_tbd_L_operators,
     compute_HH_commutator,
     compute_H_onsite_operator_commutator,
     check_lindbladian,
@@ -52,13 +53,14 @@ class Lindbladian(Operator):
         ## Couplings describing the Lindblad jump coupling.
         self.jump_couplings = jump_couplings
 
-        allowed_strings = ["x", "y", "z", "1", "+", "-"]
+        allowed_strings = ["x", "y", "z", "1", "+", "-", "tbd"]
         lindblad_range, type_list, lindblad_disorder = check_lindbladian(
             jump_couplings, allowed_strings
         )
-        if lindblad_range != 0:
+
+        if lindblad_range > 1:
             raise ValueError(
-                "Lindblad operators must be on-site for this implementation"
+                "Lindblad operators must be onsite for this implementation, unless the jump type is tbd"
             )
 
         if self.disorder and True in lindblad_disorder:
@@ -77,8 +79,11 @@ class Lindbladian(Operator):
             jump_couplings, self.max_l, self.range_, self.L
         )
 
-        ## LatticeDict containing all basic onsite lindblad operators
-        self.L_operators = setup_onsite_L_operators(self.max_l, self.range_, type_list)
+        ## LatticeDict containing all basic lindblad operators
+        if "tbd" in type_list:
+            self.L_operators = setup_tbd_L_operators(self.max_l, self.range_, type_list)
+        else:
+            self.L_operators = setup_onsite_L_operators(self.max_l, self.range_, type_list)
 
     def operator_current(
         self, operator: Operator

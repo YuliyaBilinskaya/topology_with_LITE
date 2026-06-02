@@ -18,7 +18,7 @@ import matplotlib.cm as cm
 # the enough max_l-local information has build up.
 min_l = 3
 max_l = 6
-L = 301
+L = 30
 dissipation_strength = 0.1
 J = 1.0
 P = 11
@@ -91,9 +91,9 @@ config = li.config.TimeEvolutionConfig(
 system = li.OpenSystem(initial_state, setup_lindbladian, config=config, data=data)
 
 # the main time-evolution loop. Observables and state are checkpointed after each iteration
-steps = 5
+steps = 1
 for i in range(steps):
-    system.evolve(max_evolution_time=2.0, final_time=True)
+    system.evolve(max_evolution_time=1.0, final_time=True)
     print(f"finished cycle {i} of {steps}")
     system.solver.step_size = 0.25
 

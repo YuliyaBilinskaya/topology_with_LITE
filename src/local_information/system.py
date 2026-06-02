@@ -90,17 +90,22 @@ class System(ABC):
         """
         s = None
         if self.config.shift > 0:
-            s = one_shift(self.state.density_matrix, self.config.shift)
-            self.state.density_matrix = (
+            has_tbd_jump = (
+                    hasattr(self._system_operator, "jump_couplings")
+                    and any(jump_term[0] == "tbd" for jump_term in self._system_operator.jump_couplings)
+                    )
+            if self.config.shift > 0 and not has_tbd_jump:
+                s = one_shift(self.state.density_matrix, self.config.shift)
+                self.state.density_matrix = (
                 1 / (1 + self.config.shift) * (self.state.density_matrix + s)
             )
         return s
 
     def _unshift(self, s: LatticeDict):
         if self.config.shift > 0:
-            self.state.density_matrix = (
-                self.state.density_matrix * (1 + self.config.shift) - s
-            )
+            if self.config.shift > 0 and s is not None:
+                self.state.density_matrix = (self.state.density_matrix * (1 + self.config.shift) - s
+                )
         pass
 
     def _align(self, loaded: bool = False):

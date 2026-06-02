@@ -38,11 +38,12 @@ class DataConfig:
     observables: List = []
     info_lattice: bool = False
     info_current: bool = False
-    diffusion_length: bool = True
-    diffusion_const: bool = True
+    diffusion_length: bool = False
+    diffusion_const: bool = False
     energy_distribution: bool = False
     times: bool = True
     system_size: bool = True
+    density_matrix: bool = True
 
     def to_dict(self):
         if self.observables:
@@ -322,6 +323,7 @@ class DefaultObservables:
             "system_size": self.get_system_size,
             "info_lattice": self.get_information_lattice,
             "info_current": self.get_information_current,
+            "density_matrix": self.get_density_matrix,
         }
 
     def __call__(
@@ -371,3 +373,6 @@ class DefaultObservables:
 
     def get_information_current(self) -> dict:
         return self.state.get_information_current(self.operator)
+
+    def get_density_matrix(self):
+        return self.density_matrix

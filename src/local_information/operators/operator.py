@@ -444,11 +444,15 @@ def check_lindbladian(
             disorder.append([not all(x == h_element[1][0] for x in h_element[1])])
 
         # get the max operators range
-        if len(h_element[0]) - 1 > range_:
-            range_ = len(h_element[0]) - 1
+        if h_element[0] == "tbd":
+            type_list += ["tbd"]
+            range_ = 1
+        else:
+            if len(h_element[0]) - 1 > range_:
+                range_ = len(h_element[0]) - 1
 
-        if len(h_element[0]) == 1:
-            type_list += [h_element[0]]
+            if len(h_element[0]) == 1:
+                type_list += [h_element[0]]
 
     type_list = list(set(type_list))
 
@@ -480,23 +484,54 @@ def construct_lindbladian_id(
 ) -> list[tuple[str, float] | None]:
     """
     Construct the Lindbladian id for the operators from n_min to n_max.
+
+    For onsite jumps, the returned list has one entry per site in the subsystem.
+    For the special jump type "tbd", the returned list has one entry per bond start,
+    i.e. for local positions corresponding to bonds (m, m+1).
+
+    Each non-None entry is a list of tuples:
+        [(jump_type, jump_value), ...]
     """
 
-    # initialize as list with n_max - n_min entries
-    id_list = [None for _ in range(n_max - n_min)]
+    has_tbd = any(jump_term[0] == "tbd" for jump_term in jump_couplings)
+
+    if has_tbd:
+        # subsystem spans sites n_min, ..., n_max-1
+        # valid tbd bonds start at n_min, ..., n_max-2
+        id_list = [None for _ in range(max(0, n_max - n_min - 1))]
+    else:
+        # one entry per site
+        id_list = [None for _ in range(n_max - n_min)]
+
     for jump_term in jump_couplings:
         jump_type = jump_term[0]
-        for n in range(n_min, n_max):
-            jump_value = jump_term[1][n]
-            if jump_value == 0 or jump_value is None:
-                continue
-            else:
-                if id_list[n - n_min] is None:
-                    id_list[n - n_min] = [(jump_type, jump_value)]
+
+        if jump_type == "tbd":
+            # one jump operator per bond start
+            for n in range(n_min, n_max - 1):
+                jump_value = jump_term[1][n]
+                if jump_value == 0 or jump_value is None:
+                    continue
                 else:
-                    id_list[n - n_min] += [(jump_type, jump_value)]
+                    if id_list[n - n_min] is None:
+                        id_list[n - n_min] = [(jump_type, jump_value)]
+                    else:
+                        id_list[n - n_min] += [(jump_type, jump_value)]
+
+        else:
+            # onsite jump operators
+            for n in range(n_min, n_max):
+                jump_value = jump_term[1][n]
+                if jump_value == 0 or jump_value is None:
+                    continue
+                else:
+                    if id_list[n - n_min] is None:
+                        id_list[n - n_min] = [(jump_type, jump_value)]
+                    else:
+                        id_list[n - n_min] += [(jump_type, jump_value)]
 
     return id_list
+
 
 
 def setup_onsite_L_operators(
@@ -548,5 +583,82 @@ def setup_onsite_L_operators(
                     L_operators[LatticeKey(level=ell, coord=m, name=tpe)] = (
                         sparse.csr_matrix(operator)
                     )
+
+    return L_operators
+
+def setup_tbd_L_operators(max_l: int, range_: int, type_list: list) -> LatticeDict:
+    """
+    Construct two-site Topology by Dissipation jump operators as in 10.1038/NPHYS2106 up to level max_l + range_.
+
+    For a key LatticeKey(level=ell, coord=m, name="tbd"), coord=m denotes the
+    left site of the bond (m, m+1) inside a subsystem of size ell + 1.
+
+    The encoded jump operator is
+        c_m^dagger + c_m + c_{m+1}^dagger - c_{m+1}
+    represented in spin variables via Jordan-Wigner strings.
+    """
+    L_operators = LatticeDict()
+
+    basic_operators = {
+        "z": np.array([[1.0, 0.0], [0.0, -1.0]], dtype=np.complex128),
+        "+": np.array([[0.0, 1.0], [0.0, 0.0]], dtype=np.complex128),
+        "-": np.array([[0.0, 0.0], [1.0, 0.0]], dtype=np.complex128),
+    }
+
+    # c^\dagger + c = sigma^+ + sigma^-
+    sigma_p_plus_m = basic_operators["+"] + basic_operators["-"]
+    # c^\dagger - c = sigma^+ - sigma^-
+    sigma_p_minus_m = basic_operators["+"] - basic_operators["-"]
+
+    def kron_repeat(op: np.ndarray, count: int) -> np.ndarray:
+        if count <= 0:
+            return np.array([[1.0]], dtype=np.complex128)
+        out = op
+        for _ in range(count - 1):
+            out = np.kron(out, op)
+        return out
+
+    def embed_term(prefix: np.ndarray, local: np.ndarray, suffix_sites: int) -> np.ndarray:
+        suffix = np.eye(2**suffix_sites, dtype=np.complex128)
+        return np.kron(prefix, np.kron(local, suffix))
+
+    for ell in range(max_l + range_ + 1):
+        local_size = ell + 1
+
+        # A two-site bond exists only if the subsystem has at least 2 sites.
+        if local_size < 2:
+            continue
+
+        # Valid bond starts are m = 0, ..., local_size - 2.
+        for m in range(local_size - 1):
+            for tpe in type_list:
+                if tpe != "tbd":
+                    continue
+
+                # Jordan-Wigner string over all sites left of m.
+                jw_prefix = kron_repeat(basic_operators["z"], m)
+
+                # First contribution: c_m^dagger + c_m
+                # -> Z_0 ... Z_{m-1} (sigma^+ + sigma^-)_m
+                term_i = embed_term(
+                    jw_prefix,
+                    sigma_p_plus_m,
+                    local_size - m - 1,
+                )
+
+                # Second contribution: c_{m+1}^dagger - c_{m+1}
+                # -> Z_0 ... Z_{m-1} Z_m (sigma^+ - sigma^-)_{m+1}
+                term_j_local = np.kron(basic_operators["z"], sigma_p_minus_m)
+                term_j = embed_term(
+                    jw_prefix,
+                    term_j_local,
+                    local_size - m - 2,
+                )
+
+                operator = term_i + term_j
+
+                L_operators[LatticeKey(level=ell, coord=m, name=tpe)] = (
+                    sparse.csr_matrix(operator)
+                )
 
     return L_operators
