@@ -6,6 +6,8 @@ from dataclasses import asdict
 from functools import cached_property
 from pathlib import Path
 from typing import TYPE_CHECKING
+import numpy as np
+from scipy import sparse
 
 import yaml
 
@@ -26,6 +28,35 @@ if TYPE_CHECKING:
     from local_information.typedefs import Coupling
 
 logger = logging.getLogger()
+
+def _fermionic_gauge_matrix(num_sites: int) -> np.ndarray:
+    """
+    Diagonal gauge P with entries (-1)^(N(N-1)/2),
+    where N is the particle number of the computational basis state.
+    Needed to ensure that the sign in front of hopping and pairing terms is the same
+    after Jordan-Wigner transformation.
+    """
+    dim = 2 ** num_sites
+    phases = np.ones(dim, dtype=np.complex128)
+
+    for state in range(dim):
+        n_particles = state.bit_count()
+        phases[state] = (-1) ** ((n_particles * (n_particles - 1)) // 2)
+
+    return np.diag(phases)
+
+
+def _apply_gauge_to_subsystem_hamiltonians(subsystem_hamiltonian):
+    """
+    Apply H -> P H P^\dagger independently on every subsystem Hamiltonian.
+    """
+    for key, ham in subsystem_hamiltonian.items():
+        num_sites = key.level + 1
+        P = _fermionic_gauge_matrix(num_sites)
+        H = ham.toarray()
+        subsystem_hamiltonian[key] = sparse.csr_matrix(P @ H @ P.conj().T)
+
+    return subsystem_hamiltonian
 
 
 class Lindbladian(Operator):
@@ -72,6 +103,11 @@ class Lindbladian(Operator):
         self.subsystem_hamiltonian = construct_operator_dict(
             hamiltonian_couplings, self.max_l, self.range_, self.L
         )
+
+        if "tbd" in type_list:
+            self.subsystem_hamiltonian = _apply_gauge_to_subsystem_hamiltonians(
+                self.subsystem_hamiltonian
+            )
 
         ## LatticeDict object storing all information where to
         # apply onsite Lindblad operators for any lattice point \f$ (n, \ell) \f$
@@ -166,6 +202,7 @@ class Lindbladian(Operator):
             yaml.dump(meta_data, file)
 
         logger.info(f"saved state in {hamiltonian_filepath}")
+
 
     def __str__(self):
         string = "Lindbladian:\n\n"

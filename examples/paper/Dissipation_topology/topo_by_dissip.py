@@ -14,9 +14,9 @@ def main():
     max_l = 7
     L = 6
     dissipation_list = [0.0, 0.01, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7]
-    dissipation_strength = dissipation_list[5]
+    dissipation_strength = dissipation_list[2]
 
-    J_list = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+    J_list = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, -1.0]
     J = J_list[-1]
 
     J_list = [J for j in range(L)]
@@ -32,10 +32,17 @@ def main():
     # initial state - product state of single site density matrices
 
     # homogeneous
-    prob_up = 0.5
-    site_1 = np.array([[prob_up, 0.0], [0.0, 1 - prob_up]])
-    site_0 = np.array([[0.5, 0.0], [0.0, 0.5]])
-    bulk = [site_1 for _ in range(L)]
+    #prob_up = 0.9
+    #site_1 = np.array([[prob_up, 0.0], [0.0, 1 - prob_up]])
+    #site_0 = np.array([[0.5, 0.0], [0.0, 0.5]])
+    #bulk = [site_1 for _ in range(L)]
+
+    # Mixed Bell pairs
+    bell = (1/2) * np.array([[1, 0, 0, 1],[0, 0, 0, 0],[0, 0, 0, 0],[1, 0, 0, 1]])
+    epsilon = 0.1  # small mixing
+    I4 = np.eye(4)
+    mixed_bell = (1 - epsilon) * bell + epsilon * I4 / 4  # a weighted sum of the Bell and the maximally mixed state (I4)/4
+    bulk = [mixed_bell for _ in range(int(L/2))]
 
    # build the initial state
     initial_state = li.State.build_finite(bulk, 1)
@@ -64,11 +71,11 @@ def main():
 
     system = li.OpenSystem(initial_state, setup_lindbladian, config=config,
                                data=data)
-    steps = 1
+    steps = 20
     for i in range(steps):
-        system.evolve(max_evolution_time=4.0, final_time=True)
+        system.evolve(max_evolution_time=1.0, final_time=True)
         print(f'finished cycle {i} of {steps}')
-        system.solver.step_size = 0.25
+        system.solver.step_size = 0.01
 
 
 

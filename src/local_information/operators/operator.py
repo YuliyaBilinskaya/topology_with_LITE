@@ -655,7 +655,7 @@ def setup_tbd_L_operators(max_l: int, range_: int, type_list: list) -> LatticeDi
                     local_size - m - 2,
                 )
 
-                operator = term_i + term_j
+                operator = 0.5 * (term_i + term_j)
 
                 L_operators[LatticeKey(level=ell, coord=m, name=tpe)] = (
                     sparse.csr_matrix(operator)

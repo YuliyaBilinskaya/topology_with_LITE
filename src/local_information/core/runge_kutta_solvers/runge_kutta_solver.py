@@ -84,7 +84,12 @@ class RungeKuttaSolver(ABC):
 
     @abstractmethod
     def dissipator(
-        self, key: LatticeKey, density_matrix: np.ndarray
+            self,
+            key: LatticeKey,
+            density_matrix: np.ndarray,
+            work_dict: LatticeDict | None = None,
+            key_max_l_dim: int | None = None,
+            m: int | None = None,
     ) -> np.ndarray | None:
         pass
 
@@ -242,8 +247,15 @@ class RungeKuttaSolver(ABC):
                 _com_c = commutator(H_max_l.toarray(), DM_c)
                 rhs = _com_l + _com_r - _com_c
 
-                # Lindblad terms: in this implementation only onsite terms are allowed
-                D = self.dissipator(key, DM_c)
+                # Lindblad terms
+                D = self.dissipator(
+                    key,
+                    DM_c,
+                    work_dict=work_dict,
+                    key_max_l_dim=key_max_l_dim,
+                    m=m,
+                )
+
                 if D is not None:
                     rhs += 1j * D
 

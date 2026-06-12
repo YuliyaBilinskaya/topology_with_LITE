@@ -102,10 +102,10 @@ class System(ABC):
         return s
 
     def _unshift(self, s: LatticeDict):
-        if self.config.shift > 0:
-            if self.config.shift > 0 and s is not None:
-                self.state.density_matrix = (self.state.density_matrix * (1 + self.config.shift) - s
-                )
+        if self.config.shift > 0 and s is not None:
+            self.state.density_matrix = (
+                self.state.density_matrix * (1 + self.config.shift) - s
+            )
         pass
 
     def _align(self, loaded: bool = False):

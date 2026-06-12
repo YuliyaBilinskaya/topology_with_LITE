@@ -64,14 +64,14 @@ class MinimizationConfig(Config):
     """
 
     # percent of information allowed at max_l before the minimization is triggered
-    minimization_threshold: float = 1e-2
+    minimization_threshold: float = 1e-3 #1e-2
     # parameter used while minimizing the information. Measures the relative reduction in information during one
     # optimisation step (with respect to the initial total information at the level of minimization). Default is 1e-5
-    minimization_tolerance: float = 1e-5
+    minimization_tolerance: float = 1e-6
     # parameter used in the conjugate gradient routine to accept convergence
     conjugate_gradient_tolerance: float = 1e-5
     # damping used to improve convergence in during conjugate gradient optimization
-    conjugate_gradient_damping: float = 0.1
+    conjugate_gradient_damping: float = 0.9#0.1
 
     def __post_init__(self):
         assert all(
