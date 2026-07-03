@@ -157,6 +157,9 @@ class TimeEvolutionConfig(Config):
             raise ValueError("no such file")
 
     def to_yaml(self, directory: str | None = None):
+        if RANK != 0:
+            return
+
         if directory:
             p = Path(directory)
         else:
@@ -186,7 +189,10 @@ def configure_loging(
     p.mkdir(parents=True, exist_ok=True)
     now = datetime.now()
     date = now.strftime("%d-%m-%Y-%H-%M-%S")
-    filename = "run-" + date + ".log"
+    if SIZE > 1:
+        filename = f"run-{date}-rank{RANK}.log"
+    else:
+        filename = f"run-{date}.log"
     filepath = p / filename
 
     logger.setLevel(logging.DEBUG)

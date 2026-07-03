@@ -238,7 +238,9 @@ class State:
 
     def save_checkpoint(self, folder: str):
         """save state under folder"""
-        # create state metadata
+        if RANK != 0:
+            return
+
         meta_data = StateMetaData(
             case=self._case,
             anchor=float(self.anchor),
@@ -254,11 +256,9 @@ class State:
         if state_filepath.is_file() and state_metadata.is_file():
             logger.warning("files exist")
 
-        # save as pickle
         with open(state_filepath, "wb") as file:
             pickle.dump(self.density_matrix, file, protocol=pickle.HIGHEST_PROTOCOL)
 
-        # save as yaml
         with open(state_metadata, "w") as file:
             yaml.dump(meta_data, file)
 
@@ -512,6 +512,14 @@ class State:
                             self.dyn_max_l,
                         )
                     )
+                self.density_matrix = COMM.bcast(
+                    self.density_matrix if RANK == 0 else None,
+                    root=0,
+                )
+                self.dyn_max_l = COMM.bcast(
+                    self.dyn_max_l if RANK == 0 else None,
+                    root=0,
+                )
 
 
 @dataclass

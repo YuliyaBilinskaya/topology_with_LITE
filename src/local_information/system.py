@@ -72,17 +72,19 @@ class System(ABC):
 
     def save_checkpoint(self):
         self.data.save_checkpoint(self.config.checkpoint_folder)
-        self.state.save_checkpoint(self.config.checkpoint_folder)
-        self._system_operator.save_checkpoint(self.config.checkpoint_folder)
-        self.config.to_yaml()
-        pass
+        if RANK == 0:
+            self.state.save_checkpoint(self.config.checkpoint_folder)
+            self._system_operator.save_checkpoint(self.config.checkpoint_folder)
+            self.config.to_yaml()
+        COMM.Barrier()
 
     def attach_to_existing_file(self):
         self.data.attach_to_existing_file(self.config.checkpoint_folder)
-        self.state.save_checkpoint(self.config.checkpoint_folder)
-        self._system_operator.save_checkpoint(self.config.checkpoint_folder)
-        self.config.to_yaml()
-        pass
+        if RANK == 0:
+            self.state.save_checkpoint(self.config.checkpoint_folder)
+            self._system_operator.save_checkpoint(self.config.checkpoint_folder)
+            self.config.to_yaml()
+        COMM.Barrier()
 
     def _shift(self) -> LatticeDict:
         """!

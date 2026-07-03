@@ -1,6 +1,7 @@
 import numpy as np
 from collections import defaultdict
 import itertools
+import matplotlib.pyplot as plt
 
 def calc_opdm_operator(L,m,k):
     basic_operators = {
@@ -169,6 +170,7 @@ def calc_ave_marker_per_t(loaded_dens_mat, L):
     all_markers = defaultdict(dict)
     ave_marker_per_t_subsyst = defaultdict(dict)
     ave_marker_per_t = defaultdict(dict)
+    #for idx in range(0, 150, 1):
     for idx in range(len(loaded_dens_mat)):  #for idx in range(0, int(len(loaded_dens_mat)), 10):
         d = loaded_dens_mat[idx]
         max_ell = max(k.level for k in d.keys())
@@ -191,6 +193,493 @@ def calc_ave_marker_per_t(loaded_dens_mat, L):
 
     return ave_marker_per_t
 
+
+def calc_ave_marker_onesite_per_t(loaded_dens_mat, L):
+    ave_marker_per_t = {}
+
+    for idx in range(len(loaded_dens_mat)):
+        d = loaded_dens_mat[idx]
+        max_ell = max(k.level for k in d.keys())
+        ave_marker_per_t_subsyst = {}
+
+        if max_ell >= 3:
+            max_ell_keys = [k for k in d.keys() if k.level == max_ell]
+
+            for key in max_ell_keys:
+                many_body_rho = loaded_dens_mat[idx][key]
+                L_loc = int(np.log2(len(many_body_rho)))
+                marker = calc_marker_state(many_body_rho, L_loc, flatten=False)
+
+                # Choose the center site; for even L_loc this picks the smaller
+                # of the two middle sites.
+                center_site = (len(marker) - 1) // 2
+                ave_marker_per_t_subsyst[key] = marker[center_site]
+
+            vals_center = list(ave_marker_per_t_subsyst.values())
+            ave_marker_per_t[idx] = np.sum(vals_center) / len(vals_center)
+
+    return ave_marker_per_t
+
+def calc_ave_marker_threesite_per_t(loaded_dens_mat, L):
+    ave_marker_per_t = {}
+
+    #for idx in range(0, 160, 1):
+    for idx in range(len(loaded_dens_mat)):
+        d = loaded_dens_mat[idx]
+        max_ell = max(k.level for k in d.keys())
+        ave_marker_per_t_subsyst = {}
+
+        if max_ell >= 3:
+            max_ell_keys = [k for k in d.keys() if k.level == max_ell]
+
+            for key in max_ell_keys:
+                many_body_rho = loaded_dens_mat[idx][key]
+                L_loc = int(np.log2(len(many_body_rho)))
+                marker = calc_marker_state(many_body_rho, L_loc, flatten=False)
+
+                # Take the three central sites, biased to the left when the
+                # subsystem size is even:
+                # 5 sites -> indices 1,2,3
+                # 6 sites -> indices 1,2,3
+                # 7 sites -> indices 2,3,4
+                start = (len(marker) - 3) // 2
+                center_marker = marker[start:start + 3]
+
+                ave_marker_per_t_subsyst[key] = np.average(center_marker)
+
+            vals_center = list(ave_marker_per_t_subsyst.values())
+            ave_marker_per_t[idx] = np.sum(vals_center) / len(vals_center)
+
+    return ave_marker_per_t
+
+def calc_ave_marker_center_per_t(loaded_dens_mat, L):
+    ave_marker_center = {}
+
+    #for idx in range(0, 160, 1):
+    for idx in range(len(loaded_dens_mat)):
+        d = loaded_dens_mat[idx]
+        max_ell = max(k.level for k in d.keys())
+
+        if max_ell >= 3:
+            max_ell_keys = [k for k in d.keys() if k.level == max_ell]
+
+            # Choose the subsystem whose lattice coordinate is closest to the
+            # center of the available max-level subsystems.
+            coords = [key.coord for key in max_ell_keys]
+            center_coord = 0.5 * (min(coords) + max(coords))
+            center_key = min(max_ell_keys, key=lambda key: abs(key.coord - center_coord))
+
+            many_body_rho = loaded_dens_mat[idx][center_key]
+            L_loc = int(np.log2(len(many_body_rho)))
+            marker = calc_marker_state(many_body_rho, L_loc, flatten=False)
+
+            bulk_marker = marker[1:-1] if len(marker) > 2 else marker
+            ave_marker_center[idx] = np.average(bulk_marker)
+
+    return ave_marker_center
+
+def calc_ave_marker_const_center_per_t(loaded_dens_mat, L):
+    ave_marker_center = {}
+
+    #for idx in range(0, 160, 1):
+    for idx in range(len(loaded_dens_mat)):
+        d = loaded_dens_mat[idx]
+        max_ell = max(k.level for k in d.keys())
+
+        if max_ell >= 3:
+            max_ell_keys = [k for k in d.keys() if k.level == max_ell]
+
+            # Choose the subsystem whose lattice coordinate is closest to the
+            # center of the available max-level subsystems.
+            coords = [key.coord for key in max_ell_keys]
+            center_coord = 0.5 * (min(coords) + max(coords))
+            center_key = min(max_ell_keys, key=lambda key: abs(key.coord - center_coord))
+
+            many_body_rho = loaded_dens_mat[idx][center_key]
+            L_loc = int(np.log2(len(many_body_rho)))
+            marker = calc_marker_state(many_body_rho, L_loc, flatten=False)
+
+            # Take the three central sites, biased to the left when the
+            # subsystem size is even:
+            # 5 sites  -> indices 1,2,3
+            # 6 sites  -> indices 1,2,3
+            # 7 sites  -> indices 2,3,4
+            start = (len(marker) - 3) // 2
+            center_marker = marker[start:start + 3]
+
+            ave_marker_center[idx] = np.average(center_marker)
+
+    return ave_marker_center
+
+def calc_half_mode_weight_from_opdm(opdm, tol=1e-3, n_modes_fallback=2):
+    opdm = np.asarray(opdm, dtype=np.complex128)
+    evals, evecs = np.linalg.eigh(opdm)
+    L_loc = opdm.shape[0] // 2
+
+    mode_idxs = np.where(np.abs(evals - 0.5) < tol)[0]
+    if len(mode_idxs) == 0:
+        mode_idxs = np.argsort(np.abs(evals - 0.5))[:n_modes_fallback]
+
+    weights = np.zeros(L_loc, dtype=float)
+    for idx in mode_idxs:
+        vec = evecs[:, idx]
+        u = vec[:L_loc]
+        v = vec[L_loc:]
+        weights += np.abs(u) ** 2 + np.abs(v) ** 2
+
+    total_weight = weights.sum()
+    if total_weight > 0:
+        weights /= total_weight
+
+    return weights, np.asarray(evals[mode_idxs], dtype=float)
+
+def plot_center_markers(loaded_dens_mat, loaded_times, L):
+    times_plot = []
+    markers_per_t = []
+    marker_sums = []
+    center_keys = []
+    global_sites_per_t = []
+
+    for idx in range(len(loaded_dens_mat)):
+        d = loaded_dens_mat[idx]
+        max_ell = max(k.level for k in d.keys())
+
+        if max_ell >= 3:
+            max_ell_keys = [k for k in d.keys() if k.level == max_ell]
+
+            coords = [key.coord for key in max_ell_keys]
+            center_coord = 0.5 * (min(coords) + max(coords))
+            center_key = min(max_ell_keys, key=lambda key: abs(key.coord - center_coord))
+
+            many_body_rho = loaded_dens_mat[idx][center_key]
+            L_loc = int(np.log2(len(many_body_rho)))
+            marker = np.real_if_close(calc_marker_state(many_body_rho, L_loc, flatten=False))
+
+            if np.isnan(marker).any():
+                raise ValueError(
+                    f"NaN markers at time index {idx}, subsystem {(center_key.coord, center_key.level)}"
+                )
+
+            marker_array = np.asarray(marker, dtype=float)
+            marker_sums.append(np.sum(marker_array))
+
+            global_sites = np.arange(len(marker_array)) + int(center_key.coord - center_key.level / 2)
+            global_sites_per_t.append(global_sites)
+
+            times_plot.append(loaded_times[idx])
+            markers_per_t.append(marker_array)
+            center_keys.append((center_key.coord, center_key.level))
+
+    if not markers_per_t:
+        raise ValueError("No subsystem with max_ell >= 3 was found.")
+
+    times_plot = np.asarray(times_plot, dtype=float)
+
+    max_n_markers = max(len(marker) for marker in markers_per_t)
+    markers_array = np.full((len(markers_per_t), max_n_markers), np.nan, dtype=float)
+
+    for i, marker in enumerate(markers_per_t):
+        markers_array[i, :len(marker)] = marker
+
+    fig, ax = plt.subplots()
+
+    for n in range(max_n_markers):
+        valid = ~np.isnan(markers_array[:, n])
+        ax.scatter(times_plot[valid], markers_array[valid, n], marker='.', s=1, color='blue', label='Marker per site' if n == 0 else None,)
+
+    marker_sums = np.asarray(marker_sums, dtype=float)
+    ax.scatter(times_plot, marker_sums, marker='.', s=1, color='orange', label='Sum of markers')
+
+    final_markers = markers_array[-1]
+    final_global_sites = global_sites_per_t[-1]
+    valid_final = ~np.isnan(final_markers)
+
+    site_value_pairs = [
+        (site, value) for site, value in zip(final_global_sites, final_markers) if not np.isnan(value)
+    ]
+    site_value_pairs.sort(key=lambda x: x[1], reverse=True)
+
+    textbox_lines = ["Final-time markers"]
+    textbox_lines += [f"site {site}: {value:.3f}" for site, value in site_value_pairs]
+
+    ax.text(
+        1.02,
+        0.5,
+        "\n".join(textbox_lines),
+        transform=ax.transAxes,
+        fontsize=8,
+        color='red',
+        va='center',
+        ha='left',
+        bbox=dict(boxstyle='round', facecolor='white', edgecolor='red', alpha=0.9),
+    )
+
+    ax.set_xlabel('Time')
+    coord, level = center_keys[-1]
+    ax.set_title(
+        f"Center subsystem markers for coordinates ({float(coord)},{int(level)})"
+    )
+    ax.legend()
+    fig.tight_layout()
+
+    plt.savefig('/Users/yuliyabilinskaya/Desktop/markers_of_center_subsyst.pdf', dpi=200, bbox_inches='tight')
+
+    plt.show()
+    plt.close(fig)
+
+    return times_plot, markers_array
+
+
+def plot_center_half_mode_weights(loaded_dens_mat, loaded_times, L, tol=1e-3):
+    "Plots the weight pers site of the eigenvectors corresponding to the 0.5 eigenvalues of the OPDM. The idea is to see whether the closed gap of the OPDM is only due to the edge modes, while all the open gap modes are in the bulk."
+    times_plot = []
+    weights_per_t = []
+    center_keys = []
+    selected_eigvals = []
+    global_sites_per_t = []
+
+    for idx in range(len(loaded_dens_mat)):
+        d = loaded_dens_mat[idx]
+        max_ell = max(k.level for k in d.keys())
+
+        if max_ell >= 3:
+            max_ell_keys = [k for k in d.keys() if k.level == max_ell]
+
+            coords = [key.coord for key in max_ell_keys]
+            center_coord = 0.5 * (min(coords) + max(coords))
+            center_key = min(max_ell_keys, key=lambda key: abs(key.coord - center_coord))
+
+            many_body_rho = loaded_dens_mat[idx][center_key]
+            opdm = calc_opdm_from_rho(many_body_rho)
+            weights, eigvals = calc_half_mode_weight_from_opdm(opdm, tol=tol)
+
+            if np.isnan(weights).any():
+                raise ValueError(
+                    f"NaN half-mode weights at time index {idx}, subsystem {(center_key.coord, center_key.level)}"
+                )
+
+            weight_array = np.asarray(weights, dtype=float)
+            global_sites = np.arange(len(weight_array)) + int(center_key.coord - center_key.level / 2)
+
+            times_plot.append(loaded_times[idx])
+            weights_per_t.append(weight_array)
+            center_keys.append((center_key.coord, center_key.level))
+            selected_eigvals.append(eigvals)
+            global_sites_per_t.append(global_sites)
+
+    if not weights_per_t:
+        raise ValueError("No subsystem with max_ell >= 3 was found.")
+
+    times_plot = np.asarray(times_plot, dtype=float)
+    max_n_sites = max(len(weight) for weight in weights_per_t)
+    weights_array = np.full((len(weights_per_t), max_n_sites), np.nan, dtype=float)
+
+    for i, weight in enumerate(weights_per_t):
+        weights_array[i, :len(weight)] = weight
+
+    fig, ax = plt.subplots()
+
+    for n in range(max_n_sites):
+        valid = ~np.isnan(weights_array[:, n])
+        ax.scatter(
+            times_plot[valid],
+            weights_array[valid, n],
+            marker=".",
+            s=1,
+            color="purple",
+            label="Half-mode weight per site" if n == 0 else None,
+        )
+
+    final_weights = weights_array[-1]
+    final_global_sites = global_sites_per_t[-1]
+    valid_final = ~np.isnan(final_weights)
+    site_weight_pairs = [
+        (site, value) for site, value in zip(final_global_sites, final_weights) if not np.isnan(value)
+    ]
+    site_weight_pairs.sort(key=lambda x: x[1], reverse=True)
+
+    final_eigs = ", ".join(f"{value:.4f}" for value in selected_eigvals[-1])
+    textbox_lines = [f"Final-time half-mode eigs:"]
+    textbox_lines += [f"site {site}: {value:.3f}" for site, value in site_weight_pairs]
+
+    ax.text(
+        1.02,
+        0.5,
+        "\n".join(textbox_lines),
+        transform=ax.transAxes,
+        fontsize=8,
+        color="red",
+        va="center",
+        ha="left",
+        bbox=dict(boxstyle="round", facecolor="white", edgecolor="red", alpha=0.9),
+    )
+
+    ax.set_xlabel("Time")
+    ax.set_ylabel(r"$\sum_\alpha (|u^{(\alpha)}_j|^2 + |v^{(\alpha)}_j|^2)$")
+    coord, level = center_keys[-1]
+    ax.set_title(
+        f"Center subsystem half-mode weights for coordinates ({float(coord)},{int(level)})"
+    )
+    #ax.legend()
+    fig.tight_layout()
+
+    plt.savefig("/Users/yuliyabilinskaya/Desktop/half_mode_weights_of_center_subsyst.pdf", dpi=200, bbox_inches="tight")
+
+    plt.show()
+    plt.close(fig)
+
+    return times_plot, weights_array, selected_eigvals
+
+def plot_center_markers_from_corr_mat_evo(opdm_t_corr, times_corr):
+    "Plots the average of the Local Topological Markers in the central subsystem. The two edge sites are excluded"
+    times_plot = []
+    markers_per_t = []
+    marker_sums = []
+
+    for idx, opdm in enumerate(opdm_t_corr):
+        marker = np.real_if_close(calc_marker_state_from_opdm(opdm, flatten=False))
+
+        if np.isnan(marker).any():
+            raise ValueError(f"NaN markers at time index {idx}")
+
+        marker_array = np.asarray(marker, dtype=float)
+
+        times_plot.append(times_corr[idx])
+        markers_per_t.append(marker_array)
+        marker_sums.append(np.sum(marker_array))
+
+    if not markers_per_t:
+        raise ValueError("No OPDM data was found.")
+
+    times_plot = np.asarray(times_plot, dtype=float)
+
+    max_n_markers = max(len(marker) for marker in markers_per_t)
+    markers_array = np.full((len(markers_per_t), max_n_markers), np.nan, dtype=float)
+
+    for i, marker in enumerate(markers_per_t):
+        markers_array[i, :len(marker)] = marker
+
+    fig, ax = plt.subplots()
+
+    for n in range(max_n_markers):
+        valid = ~np.isnan(markers_array[:, n])
+        ax.scatter(
+            times_plot[valid],
+            markers_array[valid, n],
+            marker='.',
+            s=1,
+            color='blue',
+            label='Marker per site' if n == 0 else None,
+        )
+
+    marker_sums = np.asarray(marker_sums, dtype=float)
+    ax.scatter(
+        times_plot,
+        marker_sums,
+        marker='.',
+        s=1,
+        color='orange',
+        label='Sum of markers',
+    )
+
+    final_markers = markers_array[-1]
+    valid_final = ~np.isnan(final_markers)
+    site_value_pairs = [(site, value) for site, value in enumerate(final_markers) if valid_final[site]]
+    site_value_pairs.sort(key=lambda x: x[1], reverse=True)
+
+    textbox_lines = ["Final-time markers"]
+    textbox_lines += [f"site {site}: {value:.3f}" for site, value in site_value_pairs]
+
+    fig.subplots_adjust(right=0.78)
+    ax.text(
+        1.02,
+        0.5,
+        "\n".join(textbox_lines),
+        transform=ax.transAxes,
+        fontsize=8,
+        color='red',
+        va='center',
+        ha='left',
+        bbox=dict(boxstyle='round', facecolor='white', edgecolor='red', alpha=0.9),
+    )
+
+    ax.set_xlabel('Time')
+    ax.set_title('Markers from correlation matrix evolution')
+    ax.legend()
+    fig.tight_layout()
+
+    plt.savefig('/Users/yuliyabilinskaya/Desktop/markers_of_corr_mat_evo.pdf', dpi=200, bbox_inches='tight')
+
+    plt.show()
+    plt.close(fig)
+
+    return times_plot, markers_array, marker_sums
+
+
+
+def plot_opdm_eigvals(loaded_dens_mat, loaded_times, L):
+    "Plots all OPDM eigenvalues at each time t."
+    times_plot = []
+    eigvals_per_t = []
+    center_keys = []
+
+    #for idx in range(0, 150, 1):
+    for idx in range(len(loaded_dens_mat)):
+        d = loaded_dens_mat[idx]
+        max_ell = max(k.level for k in d.keys())
+
+        if max_ell >= 3:
+            max_ell_keys = [k for k in d.keys() if k.level == max_ell]
+
+            coords = [key.coord for key in max_ell_keys]
+            center_coord = 0.5 * (min(coords) + max(coords))
+            center_key = min(max_ell_keys, key=lambda key: abs(key.coord - center_coord))
+
+            many_body_rho = loaded_dens_mat[idx][center_key]
+            opdm = calc_opdm_from_rho(many_body_rho)
+            eigvals = np.sort(np.real_if_close(np.linalg.eigvalsh(opdm)))
+
+            if np.isnan(eigvals).any():
+                raise ValueError(
+                    f"NaN eigenvalues at time index {idx}, subsystem {(center_key.coord, center_key.level)}"
+                )
+
+            times_plot.append(loaded_times[idx])
+            eigvals_per_t.append(eigvals)
+            center_keys.append((center_key.coord, center_key.level))
+
+    if not eigvals_per_t:
+        raise ValueError("No subsystem with max_ell >= 3 was found.")
+
+    times_plot = np.asarray(times_plot, dtype=float)
+
+    max_n_eigs = max(len(eigs) for eigs in eigvals_per_t)
+    eigvals_array = np.full((len(eigvals_per_t), max_n_eigs), np.nan, dtype=float)
+
+    for i, eigs in enumerate(eigvals_per_t):
+        eigvals_array[i, :len(eigs)] = np.asarray(eigs, dtype=float)
+
+    fig, ax = plt.subplots()
+
+    for n in range(max_n_eigs):
+        valid = ~np.isnan(eigvals_array[:, n])
+        ax.scatter(times_plot[valid], eigvals_array[valid, n], marker='.', s = 1, color='green')
+
+    ax.set_xlabel('Time')
+    coord, level = center_keys[-1]
+    ax.set_title(
+        f'OPDM eigenvalues for subsystem with coordinates ({float(coord)},{int(level)})'
+    )
+    fig.tight_layout()
+
+    plt.savefig('/Users/yuliyabilinskaya/Desktop/opdm_eigvals.pdf', dpi=200, bbox_inches='tight')
+    plt.show()
+    plt.close(fig)
+
+    return times_plot, eigvals_array
+
+
+
 def calc_marker_state_from_opdm(opdm, flatten=False):
     opdm = np.asarray(opdm, dtype=np.complex128)
     L_loc = opdm.shape[0] // 2
@@ -208,6 +697,7 @@ def calc_marker_state_from_opdm(opdm, flatten=False):
 
 
 def calc_ave_marker_per_t_from_opdm(opdm_t, L):
+    "Calculates the local topological marker average from provided OPDM on all sites except the edges of the full system."
     ave_marker_per_t = {}
     var_marker_per_t = {}
 
@@ -218,3 +708,241 @@ def calc_ave_marker_per_t_from_opdm(opdm_t, L):
 
     return ave_marker_per_t
 
+
+def calc_marker_onesite_per_t_from_opdm(opdm_t, L):
+    "Calculates the local topological marker from provided OPDM only on the central site of the full system."
+
+    marker_per_t = {}
+
+    for idx, opdm in enumerate(opdm_t):
+        marker = calc_marker_state_from_opdm(opdm, flatten=False)
+
+        # Choose the center site; for even system size this picks the smaller
+        # of the two middle sites.
+        center_site = (len(marker) - 1) // 2
+        marker_per_t[idx] = marker[center_site]
+
+    return marker_per_t
+
+
+def calc_marker_const_center_per_t_from_opdm(opdm_t, L):
+    marker_per_t = {}
+
+    for idx, opdm in enumerate(opdm_t):
+        marker = calc_marker_state_from_opdm(opdm, flatten=False)
+
+        # Take the three central sites, biased to the left when the
+        # subsystem size is even:
+        # 5 sites -> indices 1,2,3
+        # 6 sites -> indices 1,2,3
+        # 7 sites -> indices 2,3,4
+        start = (len(marker) - 3) // 2
+        center_marker = marker[start:start + 3]
+
+        marker_per_t[idx] = np.average(center_marker)
+
+    return marker_per_t
+
+
+def plot_onsite_occupations_from_corr_mat_evo(opdm_t_corr, times_corr):
+    times_plot = []
+    occupations_per_t = []
+    occupation_sums = []
+
+    for idx, opdm in enumerate(opdm_t_corr):
+        opdm = np.asarray(opdm, dtype=np.complex128)
+        L_loc = opdm.shape[0] // 2
+
+        # In the BdG OPDM used here, the upper-left block is <c_i^\dagger c_j>,
+        # so the diagonal gives the on-site occupations <n_j>.
+        occupations = np.real_if_close(np.diag(opdm[:L_loc, :L_loc]))
+
+        if np.isnan(occupations).any():
+            raise ValueError(f"NaN occupations at time index {idx}")
+
+        occupations = np.asarray(occupations, dtype=float)
+
+        times_plot.append(times_corr[idx])
+        occupations_per_t.append(occupations)
+        occupation_sums.append(np.sum(occupations))
+
+    if not occupations_per_t:
+        raise ValueError("No OPDM data was found.")
+
+    times_plot = np.asarray(times_plot, dtype=float)
+
+    max_n_sites = max(len(occ) for occ in occupations_per_t)
+    occupations_array = np.full((len(occupations_per_t), max_n_sites), np.nan, dtype=float)
+
+    for i, occ in enumerate(occupations_per_t):
+        occupations_array[i, :len(occ)] = occ
+
+    fig, ax = plt.subplots()
+
+    for n in range(max_n_sites):
+        valid = ~np.isnan(occupations_array[:, n])
+        ax.scatter(
+            times_plot[valid],
+            occupations_array[valid, n],
+            marker='.',
+            s=1,
+            color='blue',
+            label='Occupation per site' if n == 0 else None,
+        )
+
+    occupation_sums = np.asarray(occupation_sums, dtype=float)
+    ax.scatter(
+        times_plot,
+        occupation_sums,
+        marker='.',
+        s=1,
+        color='orange',
+        label='Sum of occupations',
+    )
+
+    final_occupations = occupations_array[-1]
+    valid_final = ~np.isnan(final_occupations)
+    site_value_pairs = [
+        (site, value) for site, value in enumerate(final_occupations) if valid_final[site]
+    ]
+    site_value_pairs.sort(key=lambda x: x[1], reverse=True)
+
+    textbox_lines = ["Final-time occupations"]
+    textbox_lines += [f"site {site}: {value:.3f}" for site, value in site_value_pairs]
+
+    fig.subplots_adjust(right=0.78)
+    ax.text(
+        1.02,
+        0.5,
+        "\n".join(textbox_lines),
+        transform=ax.transAxes,
+        fontsize=8,
+        color='red',
+        va='center',
+        ha='left',
+        bbox=dict(boxstyle='round', facecolor='white', edgecolor='red', alpha=0.9),
+    )
+
+    ax.set_xlabel('Time')
+    ax.set_ylabel(r'$\langle n_j \rangle$')
+    ax.set_title('On-site occupations from correlation matrix evolution')
+    ax.legend()
+    fig.tight_layout()
+
+    plt.savefig('/Users/yuliyabilinskaya/Desktop/occupations_of_corr_mat_evo.pdf',
+                dpi=200, bbox_inches='tight')
+
+    plt.show()
+    plt.close(fig)
+
+    return times_plot, occupations_array, occupation_sums
+
+def plot_center_occupations(loaded_dens_mat, loaded_times, L):
+    times_plot = []
+    occupations_per_t = []
+    occupation_sums = []
+    center_keys = []
+
+    for idx in range(len(loaded_dens_mat)):
+        d = loaded_dens_mat[idx]
+        max_ell = max(k.level for k in d.keys())
+
+        if max_ell >= 3:
+            max_ell_keys = [k for k in d.keys() if k.level == max_ell]
+
+            coords = [key.coord for key in max_ell_keys]
+            center_coord = 0.5 * (min(coords) + max(coords))
+            center_key = min(max_ell_keys, key=lambda key: abs(key.coord - center_coord))
+
+            many_body_rho = loaded_dens_mat[idx][center_key]
+            opdm = calc_opdm_from_rho(many_body_rho)
+            L_loc = opdm.shape[0] // 2
+
+            # Upper-left block is <c_i^\dagger c_j>, so its diagonal is <n_j>.
+            occupations = np.real_if_close(np.diag(opdm[:L_loc, :L_loc]))
+
+            if np.isnan(occupations).any():
+                raise ValueError(
+                    f"NaN occupations at time index {idx}, subsystem {(center_key.coord, center_key.level)}"
+                )
+
+            occupation_array = np.asarray(occupations, dtype=float)
+            occupation_sums.append(np.sum(occupation_array))
+
+            times_plot.append(loaded_times[idx])
+            occupations_per_t.append(occupation_array)
+            center_keys.append((center_key.coord, center_key.level))
+
+    if not occupations_per_t:
+        raise ValueError("No subsystem with max_ell >= 3 was found.")
+
+    times_plot = np.asarray(times_plot, dtype=float)
+
+    max_n_sites = max(len(occ) for occ in occupations_per_t)
+    occupations_array = np.full((len(occupations_per_t), max_n_sites), np.nan, dtype=float)
+
+    for i, occ in enumerate(occupations_per_t):
+        occupations_array[i, :len(occ)] = occ
+
+    fig, ax = plt.subplots()
+
+    for n in range(max_n_sites):
+        valid = ~np.isnan(occupations_array[:, n])
+        ax.scatter(
+            times_plot[valid],
+            occupations_array[valid, n],
+            marker='.',
+            s=1,
+            color='blue',
+            label='Occupation per site' if n == 0 else None,
+        )
+
+    occupation_sums = np.asarray(occupation_sums, dtype=float)
+    ax.scatter(
+        times_plot,
+        occupation_sums,
+        marker='.',
+        s=1,
+        color='orange',
+        label='Sum of occupations',
+    )
+
+    final_occupations = occupations_array[-1]
+    valid_final = ~np.isnan(final_occupations)
+
+    site_value_pairs = [
+        (site, value) for site, value in enumerate(final_occupations) if valid_final[site]
+    ]
+    site_value_pairs.sort(key=lambda x: x[1], reverse=True)
+
+    textbox_lines = ["Final-time occupations"]
+    textbox_lines += [f"site {site}: {value:.3f}" for site, value in site_value_pairs]
+
+    ax.text(
+        1.02,
+        0.5,
+        "\n".join(textbox_lines),
+        transform=ax.transAxes,
+        fontsize=8,
+        color='red',
+        va='center',
+        ha='left',
+        bbox=dict(boxstyle='round', facecolor='white', edgecolor='red', alpha=0.9),
+    )
+
+    ax.set_xlabel('Time')
+    coord, level = center_keys[-1]
+    ax.set_title(
+        f"Center subsystem occupations for coordinates ({float(coord)},{int(level)})"
+    )
+    ax.set_ylabel(r'$\langle n_j \rangle$')
+    ax.legend()
+    fig.tight_layout()
+
+    plt.savefig('/Users/yuliyabilinskaya/Desktop/occupations_of_center_subsyst.pdf',
+                dpi=200, bbox_inches='tight')
+
+    plt.show()
+    plt.close(fig)
+
+    return times_plot, occupations_array

@@ -1,8 +1,13 @@
 import os
 import sys
 
-os.environ['OMP_NUM_THREADS'] = '4'
+os.environ["VECLIB_MAXIMUM_THREADS"] = "4"
+os.environ["OMP_NUM_THREADS"] = "4"
+os.environ["OPENBLAS_NUM_THREADS"] = "4"
+os.environ["MKL_NUM_THREADS"] = "4"
+
 import numpy as np
+#np.__config__.show()
 import pickle
 import local_information as li
 
@@ -10,9 +15,9 @@ import local_information as li
 def main():
     script_dir = os.path.dirname(os.path.abspath(__file__))
 
-    min_l = 3
+    min_l = 6
     max_l = 7
-    L = 6
+    L = 8
     dissipation_list = [0.0, 0.01, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7]
     dissipation_strength = dissipation_list[2]
 
@@ -56,7 +61,7 @@ def main():
     checkpoint_folder = os.path.join(
         script_dir,
         "results",
-        f'xx_dissipation={dissipation_strength}_J={J}_L={L}'
+        f'xx_diss={dissipation_strength}_J={J}_L={L}_lmin={min_l}_lmax={max_l}'
     )
 
     data_config = li.DataConfig(info_lattice = True, density_matrix = True)

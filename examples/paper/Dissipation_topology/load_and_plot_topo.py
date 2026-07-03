@@ -1,4 +1,5 @@
 import os
+import re
 import pickle
 import matplotlib.pyplot as plt
 from scipy.interpolate import PchipInterpolator
@@ -6,14 +7,16 @@ from matplotlib.colors import LinearSegmentedColormap, Normalize
 from marker_functions import *
 
 
-L = 10
-dissipation_strength = 0.6
+L = 8
+dissipation_strength = 0.2
 J = -1.0
+min_l = 3
+max_l= 4
 script_dir = os.path.dirname(os.path.abspath(__file__))
 checkpoint_folder = os.path.join(
     script_dir,
     "results",
-    f"xx_dissipation={dissipation_strength}_J={J}_L={L}"
+    f"xx_diss={dissipation_strength}_J={J}_L={L}_lmin={min_l}_lmax={max_l}"
 )
 
 
@@ -58,8 +61,8 @@ opdm_t_corr = np.load(os.path.join(data_filepath, "opdm_t_corr.npy"))
 times_corr = np.load(os.path.join(data_filepath, "times_corr.npy"))
 
 
-ave_marker_per_t_lite = calc_ave_marker_per_t(loaded_dens_mat, L)
-ave_marker_per_t_corr =  calc_ave_marker_per_t_from_opdm(opdm_t_corr, times_corr)
+ave_marker_per_t_lite = calc_ave_marker_threesite_per_t(loaded_dens_mat, L)
+ave_marker_per_t_corr =  calc_marker_const_center_per_t_from_opdm(opdm_t_corr, times_corr)
 
 
 
@@ -178,12 +181,145 @@ def plot_local_marker_comparison(ave_marker_per_t_lite, loaded_times, ave_marker
 
     return times_lite, values_lite, times_corr, corr_values
 
+
+
+def plot_local_marker_comparison_lmin_lmax(
+    ave_marker_per_t_corr, times_corr,
+    corr_label='Correlation matrix evolution',
+    save_path="/Users/yuliyabilinskaya/Desktop/topo_marker_comparison_lmin_lmax.pdf",
+    use_lines=True, truncate_to_common_times=False,
+    results_dir=None, dissipation_strength=None, J=None, L=None
+):
+    corr_values = np.array(list(ave_marker_per_t_corr.values()), dtype=float)
+    corr_times = np.array(times_corr, dtype=float)
+
+    fig, ax1 = plt.subplots()
+
+    if results_dir is not None:
+        pattern = re.compile(
+            rf"^xx_diss={dissipation_strength}_J={J}_L={L}_lmin=(\d+)_lmax=(\d+)$"
+        )
+
+        matching = []
+        for folder in os.listdir(results_dir):
+            full_path = os.path.join(results_dir, folder)
+            if not os.path.isdir(full_path):
+                continue
+
+            match = pattern.match(folder)
+            if match is None:
+                continue
+
+            lmin_val = int(match.group(1))
+            lmax_val = int(match.group(2))
+
+            if lmax_val - lmin_val == 1:
+                matching.append((lmin_val, lmax_val, full_path))
+
+        matching.sort(key=lambda x: (x[0], x[1]))
+
+        colors = [
+            "#1b5e20",
+            "#1565c0",
+            "#ef6c00",
+            "#6a1b9a",
+            "#c62828",
+            "#00897b",
+            "#8d6e63",
+        ]
+
+        for i, (lmin_val, lmax_val, folder_path) in enumerate(matching):
+            color = colors[i % len(colors)]
+
+            dens_mat = load_from_file(os.path.join(folder_path, "density_matrix.pkl"))
+            times_other = load_from_file(os.path.join(folder_path, "times.pkl"))
+            ave_marker_other = calc_ave_marker_threesite_per_t(dens_mat, L)
+
+            times_other = np.array(
+                [times_other[idx] for idx in ave_marker_other.keys()],
+                dtype=float
+            )
+            values_other = np.array(list(ave_marker_other.values()), dtype=float)
+
+            if truncate_to_common_times and len(corr_times) > 0:
+                mask = times_other <= corr_times[-1]
+                times_other = times_other[mask]
+                values_other = values_other[mask]
+
+            if use_lines:
+                ax1.plot(times_other, values_other, linewidth=1.0, alpha=0.8, color=color)
+
+            ax1.scatter(
+                times_other,
+                values_other,
+                marker='o',
+                edgecolors=color,
+                facecolors='none',
+                linewidths=1.0,
+                s=25,
+                zorder=3,
+                label=rf'LITE evolution ($\ell_{{\min}}={lmin_val}, \ell_{{\max}}={lmax_val}$)'
+            )
+
+    if use_lines:
+        ax1.plot(corr_times, corr_values, color='red', linewidth=1.0)
+
+    ax1.scatter(
+        corr_times,
+        corr_values,
+        marker='x',
+        color='red',
+        linewidths=0.5,
+        s=10,
+        label=corr_label
+    )
+
+    ax1.set_xlabel('Time')
+    ax1.set_ylabel(r'$\sum_{i=2}^{L-1} m_i \,/\, (L-2)$', color='black')
+    ax1.tick_params(axis='y', labelcolor='black')
+    ax1.legend()
+    plt.title('Average Local Topological Marker over time')
+    fig.tight_layout()
+
+    if save_path is not None:
+        plt.savefig(save_path, dpi=200, bbox_inches='tight')
+
+    plt.show()
+    plt.close(fig)
+
+
 ################## PLOTTING ##############
 #plot_results(info_per_scale, info_latt, times, default_time_indexes, L,  InfoLatt_norm=1)
 
 #plot_local_marker(ave_marker_per_t_lite, loaded_times)
 
-plot_local_marker_comparison(ave_marker_per_t_lite, loaded_times, ave_marker_per_t_corr, times_corr,
-                                lite_label='LITE evolution', corr_label='Correlation matrix evolution',
-                                save_path="/Users/yuliyabilinskaya/Desktop/topo_marker_comparison.pdf",
-                                use_lines=True, truncate_to_common_times=False)
+#plot_local_marker_comparison(ave_marker_per_t_lite, loaded_times, ave_marker_per_t_corr, times_corr,
+#                                lite_label='LITE evolution', corr_label='Correlation matrix evolution',
+#                                save_path="/Users/yuliyabilinskaya/Desktop/topo_marker_comparison.pdf",
+#                                use_lines=True, truncate_to_common_times=False)
+
+
+#plot_local_marker_comparison_lmin_lmax(
+#    ave_marker_per_t_corr, times_corr,
+#    corr_label='Correlation matrix evolution',
+#    save_path="/Users/yuliyabilinskaya/Desktop/topo_marker_comparison_lmin_lmax.pdf",
+#    use_lines=True,
+#    truncate_to_common_times=False,
+#    results_dir=os.path.join(script_dir, "results"),
+#    dissipation_strength=dissipation_strength,
+#    J=J,
+#    L=L
+#)
+
+
+#plot_opdm_eigvals(loaded_dens_mat, loaded_times, L)
+
+#plot_center_markers(loaded_dens_mat, loaded_times, L)
+
+#plot_center_markers_from_corr_mat_evo(opdm_t_corr, times_corr)
+
+#plot_center_half_mode_weights(loaded_dens_mat, loaded_times, L, tol=1e-3)
+
+#plot_onsite_occupations_from_corr_mat_evo(opdm_t_corr, times_corr)
+
+plot_center_occupations(loaded_dens_mat, loaded_times, L)

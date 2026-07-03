@@ -23,6 +23,8 @@ from local_information.operators.operator import (
     Operator,
     HamiltonianData,
 )
+from local_information.mpi.mpi_setup import RANK
+
 
 if TYPE_CHECKING:
     from local_information.typedefs import Coupling
@@ -174,6 +176,8 @@ class Lindbladian(Operator):
         )
 
     def save_checkpoint(self, folder: str):
+        if RANK != 0:
+            return
         """!
         save Lindbladian under folder.
         """

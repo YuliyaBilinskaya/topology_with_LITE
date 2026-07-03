@@ -18,6 +18,8 @@ from local_information.core.runge_kutta_solvers.runge_kutta_solver import (
 )
 from local_information.core.utils import anti_commutator
 from local_information.typedefs import SystemOperator
+from local_information.lattice.lattice_dict import LatticeKey, LatticeDict
+from local_information.mpi.distribute import Distributor
 
 logger = logging.getLogger()
 
@@ -36,10 +38,14 @@ class RemoteRungeKuttaSolver(RungeKuttaSolver):
         )
 
     def dissipator(
-        self, key: LatticeKey, density_matrix: np.ndarray
+            self,
+            key: LatticeKey,
+            density_matrix: np.ndarray,
+            work_dict: LatticeDict | None = None,
+            key_max_l_dim: int | None = None,
+            m: int | None = None,
     ) -> np.ndarray | None:
-        # no dissipator for Hamiltonian evolution
-        pass
+        return None
 
     @property
     def hamiltonian(self):
@@ -141,24 +147,27 @@ class RemoteRungeKuttaSolver(RungeKuttaSolver):
         time = COMM.bcast(time, root=0)
         self.step_size = COMM.bcast(self.step_size, root=0)
 
-        tot = rho_dict + total_high
-        tot_ct = (rho_dict + total_high).dagger()
+        if RANK == 0:
+            tot = rho_dict + total_high
+            tot_ct = (rho_dict + total_high).dagger()
+            updated_rho_dict = 0.5 * (tot + tot_ct)
+        else:
+            updated_rho_dict = None
+
+        updated_rho_dict = COMM.bcast(updated_rho_dict, root=0)
 
         logger.info(
             f"finished Runge-Kutta time step with adaptive stepsize {self.step_size}"
         )
-        return 0.5 * (tot + tot_ct), time
+        return updated_rho_dict, time
 
     def runge_kutta_func(self, rho_dict: LatticeDict, dyn_max_l: int):
         """Computes the right hand side of the von-Neumann equation"""
 
-        sqrt_method = False
-        if self.config.petz_map == "sqrt":
-            sqrt_method = True
+        sqrt_method = self.config.petz_map == "sqrt"
         work_dict = deepcopy(rho_dict)
-        # do petz map only if summit of the triangle is not yet reached
+
         if len(work_dict) != 1:
-            # petz_map the density matrices at level max_l +_range
             for r in range(self.range_):
                 higher_level_dict = get_higher_level(
                     work_dict, dyn_max_l + r, sqrt_method=sqrt_method
@@ -167,66 +176,119 @@ class RemoteRungeKuttaSolver(RungeKuttaSolver):
                     work_dict += higher_level_dict
                 else:
                     work_dict = None
-            # necessary for the case where range_ = 0
-            if not RANK == 0:
+            if RANK != 0:
                 work_dict = None
 
-        if work_dict is not None:
-            key_max_l_dim = work_dict.dim_at_level(dyn_max_l)
-            # compute the rhs of the von-Neumann equation at level max_l and store it in work_dict
-            for m, key in enumerate(work_dict.keys_at_level(dyn_max_l)):
-                # m is the number of sites left to k
-                if m >= self.range_:
-                    # the site is at least _range away form the boundary
-                    distance = self.range_
-                else:
-                    # the site is less than _range away form the left boundary
-                    distance = m
+        root_work_dict = work_dict
+        if RANK == 0:
+            distributor = Distributor(root_work_dict, dyn_max_l)
+        else:
+            distributor = None
 
-                key_l = key.left_up(distance)
-                DM_l = work_dict[key_l]
-                H_max_l_range = self._system_operator.subsystem_hamiltonian[key_l]
-                # build commutator and trace out _range sites on the left
-                _com_l = ptrace(
-                    commutator(H_max_l_range.toarray(), DM_l), distance, end="left"
-                )
+        if RANK == 0:
+            block = distributor.scatter_with_halo(
+                number_of_workers=COMM.Get_size(),
+                left_halo=self.range_,
+                right_halo=self.range_,
+            )
+        else:
+            dummy = LatticeDict()
+            if dyn_max_l not in []:
+                pass
+            distributor = Distributor(rho_dict, dyn_max_l)
+            block = distributor.scatter_with_halo(
+                number_of_workers=COMM.Get_size(),
+                left_halo=self.range_,
+                right_halo=self.range_,
+            )
 
-                # repeat the same for the right side
-                bar_m = (key_max_l_dim - 1) - m
-                if bar_m >= self.range_:
-                    # the site is at least _range away form the boundary
-                    distance = self.range_
-                else:
-                    # the site is at less than _range away form the right boundary
-                    distance = bar_m
+        local_rhs = self._runge_kutta_func_local_block(
+            local_work_dict=block.local_lattice,
+            owned_keys=block.owned_keys,
+            dyn_max_l=dyn_max_l,
+            global_level_dim=block.global_level_dim,
+            global_index_by_key=block.global_index_by_key,
+        )
 
-                key_r = key.right_up(distance)
-                DM_r = work_dict[key_r]
-                H_max_l_range = self._system_operator.subsystem_hamiltonian[key_r]
-                # build commutator and trace out _range sites on the left
-                _com_r = ptrace(
-                    commutator(H_max_l_range.toarray(), DM_r),
-                    distance,
-                    end="right",
-                )
+        result = distributor.gather_owned(local_rhs)
+        return result
 
-                # the term at max_l is always the same
-                DM_c = work_dict[key]
-                H_max_l = self._system_operator.subsystem_hamiltonian[key]
-                _com_c = commutator(H_max_l.toarray(), DM_c)
-                rhs = _com_l + _com_r - _com_c
+    def _runge_kutta_func_local_block(
+            self,
+            local_work_dict: LatticeDict,
+            owned_keys: list[LatticeKey],
+            dyn_max_l: int,
+            global_level_dim: int,
+            global_index_by_key: dict[LatticeKey, int],
+    ) -> LatticeDict:
 
-                # Lindblad terms: in this implementation only onsite terms are allowed
-                D = self.dissipator(key, DM_c)
-                if D is not None:
-                    rhs += 1j * D
+        """
+        Compute RHS on one MPI rank for its owned keys only.
+        `local_work_dict` includes owned keys plus left/right halo keys.
+        """
+        rhs_dict = LatticeDict()
 
-                work_dict[key] = -1j * rhs
+        if not owned_keys:
+            return rhs_dict
 
-            # drop everything not at level max_l
-            work_dict.kill_all_except(dyn_max_l)
 
-        return work_dict
+        for key in owned_keys:
+            m = global_index_by_key[key]
+
+            if m >= self.range_:
+                distance = self.range_
+            else:
+                distance = m
+
+            key_l = key.left_up(distance)
+
+            if key_l not in local_work_dict:
+                raise KeyError(f"Missing left dependency key on rank {RANK}: {key_l}")
+
+            DM_l = local_work_dict[key_l]
+            H_max_l_range = self._system_operator.subsystem_hamiltonian[key_l]
+            _com_l = ptrace(
+                commutator(H_max_l_range.toarray(), DM_l), distance, end="left"
+            )
+
+            bar_m = (global_level_dim - 1) - m
+            if bar_m >= self.range_:
+                distance = self.range_
+            else:
+                distance = bar_m
+
+            key_r = key.right_up(distance)
+
+            if key_r not in local_work_dict:
+                raise KeyError(f"Missing right dependency key on rank {RANK}: {key_r}")
+
+            DM_r = local_work_dict[key_r]
+            H_max_l_range = self._system_operator.subsystem_hamiltonian[key_r]
+            _com_r = ptrace(
+                commutator(H_max_l_range.toarray(), DM_r),
+                distance,
+                end="right",
+            )
+
+            DM_c = local_work_dict[key]
+            H_max_l = self._system_operator.subsystem_hamiltonian[key]
+            _com_c = commutator(H_max_l.toarray(), DM_c)
+            rhs = _com_l + _com_r - _com_c
+
+            D = self.dissipator(
+                key,
+                DM_c,
+                work_dict=local_work_dict,
+                key_max_l_dim=global_level_dim,
+                m=m,
+            )
+
+            if D is not None:
+                rhs += 1j * D
+
+            rhs_dict[key] = -1j * rhs
+
+        return rhs_dict
 
 
 class RemoteLindbladRungeKuttaSolver(RemoteRungeKuttaSolver):
@@ -243,39 +305,130 @@ class RemoteLindbladRungeKuttaSolver(RemoteRungeKuttaSolver):
         )
 
     def dissipator(
-        self, key: LatticeKey, density_matrix: np.ndarray
+        self,
+        key: LatticeKey,
+        density_matrix: np.ndarray,
+        work_dict: LatticeDict | None = None,
+        key_max_l_dim: int | None = None,
+        m: int | None = None,
     ) -> np.ndarray | None:
-        """!
-        Computes the dissipator of the Lindblad equation for the Lindblad operator L
-        """
+        has_tbd = any(term[0] == "tbd" for term in self._system_operator.jump_couplings)
 
+        if has_tbd:
+            if work_dict is None or key_max_l_dim is None or m is None:
+                raise ValueError(
+                    "tbd dissipator requires work_dict, key_max_l_dim, and m"
+                )
+            return self.dissipator_with_boundary_corrections(
+                key,
+                density_matrix,
+                work_dict,
+                key_max_l_dim,
+                m,
+            )
+
+        return self._center_dissipator(key, density_matrix)
+
+    def _center_dissipator(
+        self,
+        key: LatticeKey,
+        density_matrix: np.ndarray,
+    ) -> np.ndarray | None:
         lindbladian_dict_entry = self._system_operator.lindbladian_dict[key]
-
-        D = np.zeros((2 ** (key.level + 1), 2 ** (key.level + 1)), dtype=np.complex128)
+        D = np.zeros(
+            (2 ** (key.level + 1), 2 ** (key.level + 1)),
+            dtype=np.complex128,
+        )
 
         count_non_zero_L = 0
         for e, dict_entry in enumerate(lindbladian_dict_entry):
-            # dict_entry is either None or list; if list then it has the form [(type,coupling),()...]
             if dict_entry is None:
                 continue
-            else:
-                count_non_zero_L += 1
-                for entry in dict_entry:
-                    tpe = entry[0]
-                    coupling = entry[1]
-                    id_ = LatticeKey(level=key.level, coord=e, name=tpe)
-                    L = self._system_operator.L_operators[id_].toarray()
-                    # L_operators is a LatticeDict with keys (ell,m,tpe)
-                    L_dagger = np.conjugate(np.transpose(L))
-                    D += coupling * (
-                        L @ density_matrix @ L_dagger
-                        - 0.5 * anti_commutator(L_dagger @ L, density_matrix)
-                    )
+
+            count_non_zero_L += 1
+            for entry in dict_entry:
+                tpe = entry[0]
+                coupling = entry[1]
+                id_ = LatticeKey(level=key.level, coord=e, name=tpe)
+                L = self._system_operator.L_operators[id_].toarray()
+                L_dagger = np.conjugate(np.transpose(L))
+                D += coupling * (
+                    L @ density_matrix @ L_dagger
+                    - 0.5 * anti_commutator(L_dagger @ L, density_matrix)
+                )
 
         if count_non_zero_L == 0:
             return None
-        else:
+        return D
+
+    def _single_jump_dissipator(
+        self,
+        key: LatticeKey,
+        density_matrix: np.ndarray,
+        local_index: int,
+    ) -> np.ndarray:
+        lindbladian_dict_entry = self._system_operator.lindbladian_dict[key]
+        D = np.zeros_like(density_matrix, dtype=np.complex128)
+
+        dict_entry = lindbladian_dict_entry[local_index]
+        if dict_entry is None:
             return D
+
+        for entry in dict_entry:
+            tpe = entry[0]
+            coupling = entry[1]
+            id_ = LatticeKey(level=key.level, coord=local_index, name=tpe)
+            L = self._system_operator.L_operators[id_].toarray()
+            L_dagger = np.conjugate(np.transpose(L))
+            D += coupling * (
+                L @ density_matrix @ L_dagger
+                - 0.5 * anti_commutator(L_dagger @ L, density_matrix)
+            )
+
+        return D
+
+    def dissipator_with_boundary_corrections(
+        self,
+        key: LatticeKey,
+        density_matrix: np.ndarray,
+        work_dict: LatticeDict,
+        key_max_l_dim: int,
+        m: int,
+    ) -> np.ndarray | None:
+        D_c = self._center_dissipator(key, density_matrix)
+        if D_c is None:
+            D_c = np.zeros_like(density_matrix, dtype=np.complex128)
+
+        D_l = np.zeros_like(density_matrix, dtype=np.complex128)
+        D_r = np.zeros_like(density_matrix, dtype=np.complex128)
+
+        if m >= self.range_:
+            distance_l = self.range_
+        else:
+            distance_l = m
+
+        if distance_l > 0:
+            key_l = key.left_up(distance_l)
+            DM_l = work_dict[key_l]
+            D_l_full = self._single_jump_dissipator(key_l, DM_l, local_index=0)
+            D_l = ptrace(D_l_full, distance_l, end="left")
+
+        bar_m = (key_max_l_dim - 1) - m
+        if bar_m >= self.range_:
+            distance_r = self.range_
+        else:
+            distance_r = bar_m
+
+        if distance_r > 0:
+            key_r = key.right_up(distance_r)
+            DM_r = work_dict[key_r]
+            right_index = key_r.level - 1
+            D_r_full = self._single_jump_dissipator(
+                key_r, DM_r, local_index=right_index
+            )
+            D_r = ptrace(D_r_full, distance_r, end="right")
+
+        return D_c + D_l + D_r
 
     @property
     def lindbladian(self):

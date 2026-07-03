@@ -17,6 +17,8 @@ from local_information.operators.operator import (
     Operator,
     HamiltonianData,
 )
+from local_information.mpi.mpi_setup import RANK
+
 
 if TYPE_CHECKING:
     from local_information.typedefs import Coupling
@@ -101,6 +103,9 @@ class Hamiltonian(Operator):
         return cls(max_l=meta_data.max_l, hamiltonian_couplings=hamiltonian_couplings)
 
     def save_checkpoint(self, folder: str):
+        if RANK != 0:
+            return
+
         """
         Save hamiltonian under folder.
         """
