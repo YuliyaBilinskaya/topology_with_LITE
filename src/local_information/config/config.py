@@ -125,13 +125,16 @@ class TimeEvolutionConfig(Config):
         if not self.logging_config.logging_folder:
             self.logging_config.logging_folder = self.checkpoint_folder + "/logging"
 
-        if not logger.hasHandlers():
-            configure_loging(
-                logger,
-                folder=self.logging_config.logging_folder,
-                log_level_file=self.logging_config.log_level_file,
-                log_level_console=self.logging_config.log_level_console,
-            )
+        for handler in logger.handlers[:]:
+            handler.close()
+            logger.removeHandler(handler)
+
+        configure_loging(
+            logger,
+            folder=self.logging_config.logging_folder,
+            log_level_file=self.logging_config.log_level_file,
+            log_level_console=self.logging_config.log_level_console,
+        )
 
         if self.save_checkpoint:
             if Path(self.checkpoint_folder).is_dir():

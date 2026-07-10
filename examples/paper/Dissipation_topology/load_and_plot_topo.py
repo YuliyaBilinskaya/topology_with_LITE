@@ -7,16 +7,16 @@ from matplotlib.colors import LinearSegmentedColormap, Normalize
 from marker_functions import *
 
 
-L = 8
-dissipation_strength = 0.2
+L = 6
+dissipation_strength = 0.3
 J = -1.0
 min_l = 3
-max_l= 4
+max_l= 5
 script_dir = os.path.dirname(os.path.abspath(__file__))
 checkpoint_folder = os.path.join(
     script_dir,
     "results",
-    f"xx_diss={dissipation_strength}_J={J}_L={L}_lmin={min_l}_lmax={max_l}"
+    f"xx_diss={dissipation_strength}_J={J}_L={L}_lmin={min_l}_lmax={max_l}_rank=0"
 )
 
 
@@ -49,20 +49,20 @@ def process_data(loaded_info_latt, time_indexes):
 # Load the data from LITE evolution
 data_filepath = checkpoint_folder
 times = load_from_file(os.path.join(data_filepath, "times.pkl"))
-info_latt = load_from_file(os.path.join(data_filepath, "info_lattice.pkl"))
-loaded_dens_mat = load_from_file(os.path.join(data_filepath, 'density_matrix.pkl'))
-loaded_times = load_from_file(os.path.join(data_filepath, 'times.pkl'))
+#info_latt = load_from_file(os.path.join(data_filepath, "info_lattice.pkl"))
+#loaded_dens_mat = load_from_file(os.path.join(data_filepath, 'density_matrix.pkl'))
+#loaded_times = load_from_file(os.path.join(data_filepath, 'times.pkl'))
 # Info Lattice and info per scale
 default_time_indexes = [len(times) - 1]
-info_per_scale = process_data(info_latt, default_time_indexes)
+#info_per_scale = process_data(info_latt, default_time_indexes)
 
 # Correlation matrix evolution
-opdm_t_corr = np.load(os.path.join(data_filepath, "opdm_t_corr.npy"))
-times_corr = np.load(os.path.join(data_filepath, "times_corr.npy"))
+#opdm_t_corr = np.load(os.path.join(data_filepath, "opdm_t_corr.npy"))
+#times_corr = np.load(os.path.join(data_filepath, "times_corr.npy"))
 
 
-ave_marker_per_t_lite = calc_ave_marker_threesite_per_t(loaded_dens_mat, L)
-ave_marker_per_t_corr =  calc_marker_const_center_per_t_from_opdm(opdm_t_corr, times_corr)
+#ave_marker_per_t_lite = calc_ave_marker_threesite_per_t(loaded_dens_mat, L)
+#ave_marker_per_t_corr =  calc_marker_const_center_per_t_from_opdm(opdm_t_corr, times_corr)
 
 
 
@@ -322,4 +322,196 @@ def plot_local_marker_comparison_lmin_lmax(
 
 #plot_onsite_occupations_from_corr_mat_evo(opdm_t_corr, times_corr)
 
-plot_center_occupations(loaded_dens_mat, loaded_times, L)
+#plot_center_occupations(loaded_dens_mat, loaded_times, L)
+
+
+with open(os.path.join(data_filepath, "on_site_density.pkl"), "rb") as f:
+    on_site_density_data = pickle.load(f)
+
+with open(os.path.join(data_filepath, "times.pkl"), "rb") as f:
+    loaded_times = pickle.load(f)
+
+
+plot_center_occupations_from_file(on_site_density_data, loaded_times)
+
+
+#def load_from_file(file_path):
+#    with open(file_path, "rb") as file:
+#        return pickle.load(file)
+
+
+def plot_saved_site_observable(result_folder, observable_name, choose="center"):
+    """
+    Plot per-site values of a saved custom observable.
+
+    Parameters
+    ----------
+    result_folder : str
+        Folder containing times.pkl and <observable_name>.pkl
+    observable_name : str
+        "local_marker" or "on_site_density"
+    choose : str
+        Which subsystem to inspect at each timestep:
+        - "center": subsystem closest to the center among the largest-level subsystems
+        - "first": first subsystem after sorting by (level, coord)
+    """
+    times = load_from_file(os.path.join(result_folder, "times.pkl"))
+    observable_per_t = load_from_file(
+        os.path.join(result_folder, f"{observable_name}.pkl")
+    )
+
+    times_plot = []
+    values_per_t = []
+    chosen_keys = []
+
+    for idx, obs_dict in enumerate(observable_per_t):
+        if len(obs_dict) == 0:
+            continue
+
+        max_ell = max(key.level for key in obs_dict.keys())
+        max_ell_keys = [key for key in obs_dict.keys() if key.level == max_ell]
+
+        if choose == "center":
+            coords = [key.coord for key in max_ell_keys]
+            center_coord = 0.5 * (min(coords) + max(coords))
+            chosen_key = min(max_ell_keys, key=lambda key: abs(key.coord - center_coord))
+        elif choose == "first":
+            chosen_key = sorted(max_ell_keys, key=lambda key: (key.level, key.coord))[0]
+        else:
+            raise ValueError("choose must be 'center' or 'first'")
+
+        values = np.asarray(obs_dict[chosen_key], dtype=float)
+
+        times_plot.append(times[idx])
+        values_per_t.append(values)
+        chosen_keys.append((chosen_key.coord, chosen_key.level))
+
+    if not values_per_t:
+        raise ValueError(f"No data found for observable '{observable_name}'")
+
+    times_plot = np.asarray(times_plot, dtype=float)
+    max_n_sites = max(len(v) for v in values_per_t)
+    values_array = np.full((len(values_per_t), max_n_sites), np.nan, dtype=float)
+
+    for i, values in enumerate(values_per_t):
+        values_array[i, :len(values)] = values
+
+    fig, ax = plt.subplots()
+
+    for site in range(max_n_sites):
+        valid = ~np.isnan(values_array[:, site])
+        ax.scatter(
+            times_plot[valid],
+            values_array[valid, site],
+            marker=".",
+            s=8,
+            label=f"site {site}" if site < 8 else None,
+        )
+
+    final_values = values_array[-1]
+    valid_final = ~np.isnan(final_values)
+    summary = ", ".join(
+        f"{site}:{value:.3f}"
+        for site, value in enumerate(final_values)
+        if valid_final[site]
+    )
+
+    coord, level = chosen_keys[-1]
+    ax.set_xlabel("Time")
+    ax.set_ylabel(observable_name)
+    ax.set_title(
+        f"{observable_name} for subsystem (coord={float(coord)}, level={int(level)})"
+    )
+
+    if observable_name == "on_site_density":
+        ax.set_ylabel(r"$\langle n_j \rangle$")
+    elif observable_name == "local_marker":
+        ax.set_ylabel("Local marker")
+
+    ax.text(
+        1.02,
+        0.5,
+        f"Final time values\n{summary}",
+        transform=ax.transAxes,
+        fontsize=8,
+        va="center",
+        ha="left",
+        bbox=dict(boxstyle="round", facecolor="white", edgecolor="black", alpha=0.9),
+    )
+
+    ax.legend()
+    fig.tight_layout()
+    plt.show()
+
+    return times_plot, values_array
+
+#plot_saved_site_observable(checkpoint_folder, "local_marker")
+#plot_saved_site_observable(checkpoint_folder, "on_site_density")
+
+import pickle
+import tables
+import numpy as np
+
+def plot_local_marker_comparison_h5(
+    h5_path,
+    local_marker_path,
+    times_lite_path,
+    lite_label='LITE evolution',
+    corr_label='Correlation matrix evolution',
+    save_path="/Users/yuliyabilinskaya/Desktop/topo_marker_comparison.pdf",
+    use_lines=True,
+    truncate_to_common_times=False,
+):
+    # Load correlation-matrix data from the .h5 file using PyTables
+    with tables.open_file(h5_path, mode="r") as h5:
+        opdm_t_corr = np.array(h5.root.opdm_t_corr.read())
+        times_corr = np.array(h5.root.times_corr.read())
+
+    ave_marker_per_t_corr = calc_marker_const_center_per_t_from_opdm(opdm_t_corr, times_corr)
+
+    # Load precomputed local markers and LITE times
+    with open(local_marker_path, "rb") as f:
+        local_marker_data = pickle.load(f)
+
+    with open(times_lite_path, "rb") as f:
+        loaded_times = pickle.load(f)
+
+    # Average only the already-computed local markers
+    ave_marker_per_t_lite = {}
+
+    for idx, marker_t in enumerate(local_marker_data):
+        if not isinstance(marker_t, dict):
+            raise ValueError(
+                f"Expected dict of subsystem markers at time index {idx}, got {type(marker_t)}"
+            )
+
+        max_level = max(key.level for key in marker_t.keys())
+        max_level_keys = [key for key in marker_t.keys() if key.level == max_level]
+
+        coords = [key.coord for key in max_level_keys]
+        center_coord = 0.5 * (min(coords) + max(coords))
+        center_key = min(max_level_keys, key=lambda key: abs(key.coord - center_coord))
+
+        marker = np.asarray(marker_t[center_key], dtype=float)
+        start = (len(marker) - 3) // 2
+        ave_marker_per_t_lite[idx] = np.average(marker[start:start + 3])
+
+    return plot_local_marker_comparison(
+        ave_marker_per_t_lite,
+        loaded_times,
+        ave_marker_per_t_corr,
+        times_corr,
+        lite_label=lite_label,
+        corr_label=corr_label,
+        save_path=save_path,
+        use_lines=use_lines,
+        truncate_to_common_times=truncate_to_common_times,
+    )
+
+
+
+plot_local_marker_comparison_h5(
+    h5_path=os.path.join(data_filepath, "opdm_t_corr_diss=0.2_J=-1_L=6_init=mixed_Bell.h5"),
+    local_marker_path=os.path.join(data_filepath, "local_marker.pkl"),
+    times_lite_path=os.path.join(data_filepath, "times.pkl"),
+)

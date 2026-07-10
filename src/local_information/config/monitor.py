@@ -44,6 +44,7 @@ class DataConfig:
     times: bool = True
     system_size: bool = True
     density_matrix: bool = True
+    initial_state: str = ""
 
     def to_dict(self):
         if self.observables:

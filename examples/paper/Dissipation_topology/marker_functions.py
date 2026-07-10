@@ -946,3 +946,104 @@ def plot_center_occupations(loaded_dens_mat, loaded_times, L):
     plt.close(fig)
 
     return times_plot, occupations_array
+
+def plot_center_occupations_from_file(on_site_density_data, loaded_times, save_path='/Users/yuliyabilinskaya/Desktop/occupations_of_center_subsyst.pdf'):
+    times_plot = []
+    occupations_per_t = []
+    occupation_sums = []
+    center_keys = []
+
+    for idx in range(len(on_site_density_data)):
+        d = on_site_density_data[idx]
+        max_ell = max(k.level for k in d.keys())
+
+        if max_ell >= 3:
+            max_ell_keys = [k for k in d.keys() if k.level == max_ell]
+
+            coords = [key.coord for key in max_ell_keys]
+            center_coord = 0.5 * (min(coords) + max(coords))
+            center_key = min(max_ell_keys, key=lambda key: abs(key.coord - center_coord))
+
+            occupations = np.asarray(d[center_key], dtype=float)
+
+            if np.isnan(occupations).any():
+                raise ValueError(
+                    f"NaN occupations at time index {idx}, subsystem {(center_key.coord, center_key.level)}"
+                )
+
+            occupation_sums.append(np.sum(occupations))
+            times_plot.append(loaded_times[idx])
+            occupations_per_t.append(occupations)
+            center_keys.append((center_key.coord, center_key.level))
+
+    if not occupations_per_t:
+        raise ValueError("No subsystem with max_ell >= 3 was found.")
+
+    times_plot = np.asarray(times_plot, dtype=float)
+
+    max_n_sites = max(len(occ) for occ in occupations_per_t)
+    occupations_array = np.full((len(occupations_per_t), max_n_sites), np.nan, dtype=float)
+
+    for i, occ in enumerate(occupations_per_t):
+        occupations_array[i, :len(occ)] = occ
+
+    fig, ax = plt.subplots()
+
+    for n in range(max_n_sites):
+        valid = ~np.isnan(occupations_array[:, n])
+        ax.scatter(
+            times_plot[valid],
+            occupations_array[valid, n],
+            marker='.',
+            s=1,
+            color='blue',
+            label='Occupation per site' if n == 0 else None,
+        )
+
+    occupation_sums = np.asarray(occupation_sums, dtype=float)
+    ax.scatter(
+        times_plot,
+        occupation_sums,
+        marker='.',
+        s=1,
+        color='orange',
+        label='Sum of occupations',
+    )
+
+    final_occupations = occupations_array[-1]
+    valid_final = ~np.isnan(final_occupations)
+
+    site_value_pairs = [
+        (site, value) for site, value in enumerate(final_occupations) if valid_final[site]
+    ]
+    site_value_pairs.sort(key=lambda x: x[1], reverse=True)
+
+    textbox_lines = ["Final-time occupations"]
+    textbox_lines += [f"site {site}: {value:.3f}" for site, value in site_value_pairs]
+
+    ax.text(
+        1.02,
+        0.5,
+        "\n".join(textbox_lines),
+        transform=ax.transAxes,
+        fontsize=8,
+        color='red',
+        va='center',
+        ha='left',
+        bbox=dict(boxstyle='round', facecolor='white', edgecolor='red', alpha=0.9),
+    )
+
+    ax.set_xlabel('Time')
+    coord, level = center_keys[-1]
+    ax.set_title(
+        f"Center subsystem occupations for coordinates ({float(coord)},{int(level)})"
+    )
+    ax.set_ylabel(r'$\langle n_j \rangle$')
+    ax.legend()
+    fig.tight_layout()
+
+    plt.savefig(save_path, dpi=200, bbox_inches='tight')
+    plt.show()
+    plt.close(fig)
+
+    return times_plot, occupations_array
