@@ -3,6 +3,11 @@ import matplotlib.pyplot as plt
 from marker_functions import *
 import tables
 import numpy as np
+import sys
+import glob
+from pathlib import Path
+
+from matplotlib.colors import LinearSegmentedColormap, Normalize
 
 
 
@@ -440,7 +445,7 @@ def plot_onsite_occupation_comparison_lmin_lmax(
 
 
 
-def plot_onsite_occupation_lmin_lmax_family(
+def original_plot_onsite_occupation_lmin_lmax_family(
     results_dir,
     diss_strength,
     J,
@@ -517,7 +522,99 @@ def plot_onsite_occupation_lmin_lmax_family(
         t_max=t_max,
     )
 
-def plot_local_marker_lmin_lmax_family(
+
+def plot_onsite_occupation_lmin_lmax_family(
+    results_dir,
+    diss_strength,
+    J,
+    L,
+    init,
+    global_sites,
+    corr_label='Correlation matrix evolution',
+    save_path="/Users/yuliyabilinskaya/Desktop/topo_onsite_occupation_comparison_lmin_lmax.pdf",
+    use_lines=True,
+    truncate_to_common_times=False,
+    t_min=None,
+    t_max=None,
+):
+    import os
+    import re
+
+    def lite_selection_from_global_sites(global_sites, lmax_val):
+        if lmax_val % 2 == 0:
+            center_site = lmax_val // 2
+            subsys = global_sites
+            sites_lite = (center_site, center_site)
+        else:
+            center_site = lmax_val // 2
+            subsys = (global_sites[0] + 0.5, global_sites[1] + 0.5)
+            sites_lite = (center_site, center_site)
+
+        return subsys, sites_lite
+
+    corr_path = os.path.join(
+        results_dir,
+        f"opdm_t_corr_diss={diss_strength}_J={J}_L={L}_init=mixed_{init}.h5",
+    )
+
+    pattern = re.compile(
+        rf"^xx_diss={diss_strength}_J={J}_L={L}_lmin=(\d+)_lmax=(\d+)_init={init}_mixed$"
+    )
+
+    on_site_density_data_all = {}
+    loaded_times_all = {}
+    subsys_all = {}
+    sites_lite_all = {}
+
+    for folder in sorted(os.listdir(results_dir)):
+        match = pattern.match(folder)
+        if match is None:
+            continue
+
+        lmin_val = int(match.group(1))
+        lmax_val = int(match.group(2))
+        folder_path = os.path.join(results_dir, folder)
+        density_path = os.path.join(folder_path, "on_site_density.pkl")
+        times_lite_path = os.path.join(folder_path, "times.pkl")
+
+        if not os.path.isfile(density_path) or not os.path.isfile(times_lite_path):
+            continue
+
+        with open(density_path, "rb") as f:
+            on_site_density_data = pickle.load(f)
+        with open(times_lite_path, "rb") as f:
+            loaded_times = pickle.load(f)
+
+        subsys_i, sites_lite_i = lite_selection_from_global_sites(global_sites, lmax_val)
+
+        key = (lmin_val, lmax_val)
+        on_site_density_data_all[key] = on_site_density_data
+        loaded_times_all[key] = loaded_times
+        subsys_all[key] = subsys_i
+        sites_lite_all[key] = sites_lite_i
+
+    with tables.open_file(corr_path, mode="r") as h5:
+        opdm_t_corr = np.array(h5.root.opdm_t_corr.read())
+        times_corr = np.array(h5.root.times_corr.read())
+
+    return plot_onsite_occupation_comparison_lmin_lmax(
+        on_site_density_data=on_site_density_data_all,
+        loaded_times=loaded_times_all,
+        opdm_t_corr=opdm_t_corr,
+        times_corr=times_corr,
+        subsys=subsys_all,
+        sites_lite=sites_lite_all,
+        corr_label=corr_label,
+        save_path=save_path,
+        use_lines=use_lines,
+        truncate_to_common_times=truncate_to_common_times,
+        t_min=t_min,
+        t_max=t_max,
+    )
+
+
+
+def original_plot_local_marker_lmin_lmax_family(
     results_dir,
     diss_strength,
     J,
@@ -596,3 +693,222 @@ def plot_local_marker_lmin_lmax_family(
         t_min=t_min,
         t_max=t_max,
     )
+
+def plot_local_marker_lmin_lmax_family(
+    results_dir,
+    diss_strength,
+    J,
+    L,
+    init,
+    global_sites,
+    corr_label='Correlation matrix evolution',
+    save_path="/Users/yuliyabilinskaya/Desktop/topo_marker_comparison_lmin_lmax.pdf",
+    use_lines=True,
+    truncate_to_common_times=False,
+    t_min=None,
+    t_max=None,
+):
+    import os
+    import re
+
+    def lite_selection_from_global_sites(global_sites, lmax_val):
+        # Even l_max -> odd number of sites in subsystem -> unique center site.
+        if lmax_val % 2 == 0:
+            center_site = lmax_val // 2
+            subsys = global_sites
+            sites_lite = (center_site, center_site) # (center_site-1, center_site+1)
+        else:
+            # Odd l_max -> even number of sites in subsystem.
+            # Pick the left center site so LITE evaluates the same global sites as corr.
+            center_site = lmax_val // 2
+            subsys = (global_sites[0] + 0.5, global_sites[1] + 0.5)
+            sites_lite = (center_site, center_site)  # (center_site-1, center_site+1)
+
+        return subsys, sites_lite
+
+    corr_path = os.path.join(
+        results_dir,
+        f"opdm_t_corr_diss={diss_strength}_J={J}_L={L}_init=mixed_{init}.h5",
+    )
+
+    pattern = re.compile(
+        rf"^xx_diss={diss_strength}_J={J}_L={L}_lmin=(\d+)_lmax=(\d+)_init={init}_mixed$"
+    )
+
+    local_marker_data_all = {}
+    loaded_times_all = {}
+    subsys_all = {}
+    sites_lite_all = {}
+
+    for folder in sorted(os.listdir(results_dir)):
+        match = pattern.match(folder)
+        if match is None:
+            continue
+
+        lmin_val = int(match.group(1))
+        lmax_val = int(match.group(2))
+        folder_path = os.path.join(results_dir, folder)
+        local_marker_path = os.path.join(folder_path, "local_marker.pkl")
+        times_lite_path = os.path.join(folder_path, "times.pkl")
+
+        if not os.path.isfile(local_marker_path) or not os.path.isfile(times_lite_path):
+            continue
+
+        _, _, local_marker_data, loaded_times = load_all_data(
+            h5_path=corr_path,
+            local_marker_path=local_marker_path,
+            times_lite_path=times_lite_path,
+        )
+
+        subsys_i, sites_lite_i = lite_selection_from_global_sites(global_sites, lmax_val)
+
+        #print('lmax_val', lmax_val, 'lmin_val', lmin_val)
+        #print('global_sites', global_sites)
+        #print('subsys_i', subsys_i, 'sites_lite_i', sites_lite_i)
+
+        key = (lmin_val, lmax_val)
+        local_marker_data_all[key] = local_marker_data
+        loaded_times_all[key] = loaded_times
+        subsys_all[key] = subsys_i
+        sites_lite_all[key] = sites_lite_i
+
+    with tables.open_file(corr_path, mode="r") as h5:
+        opdm_t_corr = np.array(h5.root.opdm_t_corr.read())
+        times_corr = np.array(h5.root.times_corr.read())
+
+    ave_marker_per_t_corr = calc_corr_evo_local_markers(opdm_t_corr, global_sites)
+
+    return plot_local_marker_comparison_lmin_lmax(
+        local_marker_data=local_marker_data_all,
+        loaded_times=loaded_times_all,
+        ave_marker_per_t_corr=ave_marker_per_t_corr,
+        times_corr=times_corr,
+        subsys=subsys_all,
+        sites_lite=sites_lite_all,
+        corr_label=corr_label,
+        save_path=save_path,
+        use_lines=use_lines,
+        truncate_to_common_times=truncate_to_common_times,
+        t_min=t_min,
+        t_max=t_max,
+    )
+
+
+
+def plot_info_latt_from_state(results_dir, diss_strength, time=None, InfoLattice_Norm=2):
+    """
+    Load a saved `state.pkl`, reconstruct the information lattice from the saved
+    density-matrix checkpoint, and plot it.
+
+    Notes
+    -----
+    - `state.pkl` stores one checkpointed state, not the whole time evolution.
+    - Therefore this function can only plot the saved checkpoint time.
+    - If `time` is given and does not match the checkpoint time, an error is raised.
+
+    Example
+    -------
+    plot_info_latt_from_state(
+        results_dir=data_filepath,
+        diss_strength=diss_strength,
+        time=0.5,
+        InfoLattice_Norm=2,
+    )
+    """
+
+    results_dir = Path(results_dir).expanduser().resolve()
+
+    project_root = results_dir.parents[4]
+    src_dir = project_root / "src"
+    if str(src_dir) not in sys.path:
+        sys.path.insert(0, str(src_dir))
+
+    import local_information as li
+
+    run_dirs = sorted(glob.glob(str(results_dir / f"xx_diss={diss_strength}_*")))
+    if not run_dirs:
+        raise FileNotFoundError(
+            f"No run folder found under {results_dir} for diss_strength={diss_strength}."
+        )
+
+    checkpoint_folder = Path(run_dirs[0])
+
+    state_path = checkpoint_folder / "state.pkl"
+    meta_path = checkpoint_folder / "state_meta_data.yaml"
+    times_path = checkpoint_folder / "times.pkl"
+
+    if not state_path.is_file():
+        raise FileNotFoundError(f"Missing state file: {state_path}")
+    if not meta_path.is_file():
+        raise FileNotFoundError(f"Missing state metadata file: {meta_path}")
+
+    state = li.State.from_checkpoint(str(checkpoint_folder))
+
+    checkpoint_time = float(state.current_time)
+
+    if times_path.is_file():
+        with open(times_path, "rb") as f:
+            saved_times = np.asarray(pickle.load(f), dtype=float)
+        if saved_times.size > 0:
+            checkpoint_time = float(saved_times[-1])
+
+    if time is not None and not np.isclose(time, checkpoint_time, atol=1e-10):
+        raise ValueError(
+            f"`state.pkl` contains only one checkpointed state at t={checkpoint_time}, "
+            f"but you requested time={time}."
+        )
+
+    density_matrix_all_levels = state.get_all_levels()
+    info_lattice = state.get_information_lattice(density_matrix_all_levels)
+
+    levels = sorted({key.level for key in info_lattice.keys()})
+    info_latt_plot = {}
+
+    for level in levels:
+        items = sorted(
+            (
+                (key.coord, value)
+                for key, value in info_lattice.items()
+                if key.level == level
+            ),
+            key=lambda x: x[0],
+        )
+        info_latt_plot[level + 1] = np.asarray([val for _, val in items], dtype=float)
+
+    L = max(info_latt_plot.keys())
+
+    colors = plt.get_cmap("Oranges")(np.linspace(0, 1, 20))
+    colors[0] = [1, 1, 1, 1]
+    custom_cmap = LinearSegmentedColormap.from_list("custom_colormap", colors)
+    norm = Normalize(vmin=0, vmax=InfoLattice_Norm)
+
+    r = 1 / (4 * L)
+    fig, ax = plt.subplots(dpi=300)
+
+    for l in sorted(info_latt_plot):
+        for x, value in enumerate(info_latt_plot[l]):
+            ax.add_artist(
+                plt.Circle(
+                    (x / L + l / (2 * L), (l - 0.5) / L),
+                    r,
+                    facecolor=custom_cmap(norm(value)),
+                    edgecolor="black",
+                    linewidth=0.2,
+                )
+            )
+
+    x_ticks = [x / L + 1 / (2 * L) for x in range(len(info_latt_plot[1]))]
+    y_ticks = [x / L + 1 / (2 * L) for x in range(len(info_latt_plot[1]))]
+
+    plt.xlim([-2 * r, 1])
+    plt.ylim([-2 * r, 1 + 2 * r])
+    plt.xticks(x_ticks, range(1, len(info_latt_plot[1]) + 1))
+    plt.yticks(y_ticks, range(0, len(info_latt_plot[1])))
+    plt.xlabel("Sites")
+    plt.ylabel(r"Levels ($\ell$)")
+    plt.title(f"Info lattice from state checkpoint at t={checkpoint_time:.6g}")
+    ax.set_aspect("equal")
+    plt.show()
+
+    print(f"Loaded checkpoint: {checkpoint_folder}")
+    print(f"Plotted checkpoint time: {checkpoint_time}")

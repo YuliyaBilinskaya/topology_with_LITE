@@ -1,22 +1,24 @@
 import os
 import re
 import pickle
-import matplotlib.pyplot as plt
 from scipy.interpolate import PchipInterpolator
 from matplotlib.colors import LinearSegmentedColormap, Normalize
 from marker_functions import *
 
 
-L = 6
-dissipation_strength = 0.3
+
+
+
+L = 9
+dissipation_strength = 0.4
 J = -1.0
 min_l = 3
-max_l= 5
+max_l= 4
 script_dir = os.path.dirname(os.path.abspath(__file__))
 checkpoint_folder = os.path.join(
     script_dir,
     "results",
-    f"xx_diss={dissipation_strength}_J={J}_L={L}_lmin={min_l}_lmax={max_l}_rank=0"
+    f"xx_diss={dissipation_strength}_J={J}_L={L}_lmin={min_l}_lmax={max_l}"
 )
 
 
@@ -49,12 +51,12 @@ def process_data(loaded_info_latt, time_indexes):
 # Load the data from LITE evolution
 data_filepath = checkpoint_folder
 times = load_from_file(os.path.join(data_filepath, "times.pkl"))
-#info_latt = load_from_file(os.path.join(data_filepath, "info_lattice.pkl"))
+info_latt = load_from_file(os.path.join(data_filepath, "info_lattice.pkl"))
 #loaded_dens_mat = load_from_file(os.path.join(data_filepath, 'density_matrix.pkl'))
 #loaded_times = load_from_file(os.path.join(data_filepath, 'times.pkl'))
 # Info Lattice and info per scale
-default_time_indexes = [len(times) - 1]
-#info_per_scale = process_data(info_latt, default_time_indexes)
+default_time_indexes = [35]  #[len(times) - 1]
+info_per_scale = process_data(info_latt, default_time_indexes)
 
 # Correlation matrix evolution
 #opdm_t_corr = np.load(os.path.join(data_filepath, "opdm_t_corr.npy"))
@@ -289,7 +291,7 @@ def plot_local_marker_comparison_lmin_lmax(
 
 
 ################## PLOTTING ##############
-#plot_results(info_per_scale, info_latt, times, default_time_indexes, L,  InfoLatt_norm=1)
+plot_results(info_per_scale, info_latt, times, default_time_indexes, L,  InfoLatt_norm=1)
 
 #plot_local_marker(ave_marker_per_t_lite, loaded_times)
 
@@ -332,7 +334,7 @@ with open(os.path.join(data_filepath, "times.pkl"), "rb") as f:
     loaded_times = pickle.load(f)
 
 
-plot_center_occupations_from_file(on_site_density_data, loaded_times)
+#plot_center_occupations_from_file(on_site_density_data, loaded_times)
 
 
 #def load_from_file(file_path):
@@ -515,3 +517,69 @@ plot_local_marker_comparison_h5(
     local_marker_path=os.path.join(data_filepath, "local_marker.pkl"),
     times_lite_path=os.path.join(data_filepath, "times.pkl"),
 )
+
+
+
+def plot_info_latt_from_state(initial_state, InfoLattice_Norm=2):
+    """
+    Plot the information lattice from a local_information State object.
+
+    Parameters
+    ----------
+    initial_state : local_information.state.State
+        For example the object returned by `li.State.build_finite(...)`.
+    InfoLattice_Norm : float
+        Upper bound of the color normalization.
+    """
+
+    density_matrix_all_levels = initial_state.get_all_levels()
+    info_lattice = initial_state.get_information_lattice(density_matrix_all_levels)
+
+    levels = sorted({key.level for key in info_lattice.keys()})
+    info_latt_plot = {}
+
+    for level in levels:
+        items = sorted(
+            (
+                (key.coord, value)
+                for key, value in info_lattice.items()
+                if key.level == level
+            ),
+            key=lambda x: x[0],
+        )
+        info_latt_plot[level + 1] = np.asarray([val for _, val in items], dtype=float)
+
+    L = max(info_latt_plot.keys())
+
+    colors = plt.get_cmap("Oranges")(np.linspace(0, 1, 20))
+    colors[0] = [1, 1, 1, 1]
+    custom_cmap = LinearSegmentedColormap.from_list("custom_colormap", colors)
+    norm = Normalize(vmin=0, vmax=InfoLattice_Norm)
+
+    r = 1 / (4 * L)
+    fig, ax = plt.subplots(dpi=300)
+
+    for l in sorted(info_latt_plot):
+        for x, value in enumerate(info_latt_plot[l]):
+            ax.add_artist(
+                plt.Circle(
+                    (x / L + l / (2 * L), (l - 0.5) / L),
+                    r,
+                    facecolor=custom_cmap(norm(value)),
+                    edgecolor="black",
+                    linewidth=0.2,
+                )
+            )
+
+    x_ticks = [x / L + 1 / (2 * L) for x in range(len(info_latt_plot[1]))]
+    y_ticks = [x / L + 1 / (2 * L) for x in range(len(info_latt_plot[1]))]
+
+    plt.xlim([-2 * r, 1])
+    plt.ylim([-2 * r, 1 + 2 * r])
+    plt.xticks(x_ticks, range(1, len(info_latt_plot[1]) + 1))
+    plt.yticks(y_ticks, range(0, len(info_latt_plot[1])))
+    plt.xlabel("Sites")
+    plt.ylabel(r"Levels ($\ell$)")
+    plt.title("Information lattice of initial state")
+    ax.set_aspect("equal")
+    plt.show()

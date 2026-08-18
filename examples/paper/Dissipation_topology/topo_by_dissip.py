@@ -48,16 +48,82 @@ def run_simulation(cfg, rank=0):
             I4 = np.eye(4)
             mixed_block = (1 - cfg.epsilon) * bell + cfg.epsilon * I4 / 4
 
+        elif cfg.initial_state == "imperfect_Bell_mixed": # imperfect_bell = sqrt(1/5)|00> + sqrt(4/5)|11>
+            imperfect_bell = np.array([
+                [1/5, 0, 0, np.sqrt(4)/5],
+                [0, 0, 0, 0],
+                [0, 0, 0, 0],
+                [np.sqrt(4)/5, 0, 0, 4/5],
+            ])
+            I4 = np.eye(4)
+            mixed_block = (1 - cfg.epsilon) * imperfect_bell + cfg.epsilon * I4 / 4
+
 
         elif cfg.initial_state == "triv_mixed":
             prob_up = 1.0 - cfg.epsilon
             rho_site = np.array([[prob_up, 0.0],[0.0, 1.0 - prob_up],], dtype=np.complex128)
             mixed_block = np.kron(rho_site, rho_site)
 
+        elif cfg.initial_state == "W_mixed":
+            if cfg.L % 3 != 0:
+                raise ValueError("W_mixed requires L divisible by 3")
+
+            w_vec = np.zeros(8, dtype=np.complex128)
+            w_vec[1] = 1 / np.sqrt(3)  # |001>
+            w_vec[2] = 1 / np.sqrt(3)  # |010>
+            w_vec[4] = 1 / np.sqrt(3)  # |100>
+
+            w_state = np.outer(w_vec, np.conj(w_vec))
+            I8 = np.eye(8, dtype=np.complex128)
+            mixed_block = (1 - cfg.epsilon) * w_state + cfg.epsilon * I8 / 8
+
+        elif cfg.initial_state == "cluster_locally_mixed":
+            if cfg.L % 4 != 0:
+                raise ValueError("cluster_locally_mixed requires L divisible by 4")
+
+            # 4-qubit linear cluster state mixed locally:
+            # start from |++++> and apply CZ on (0,1), (1,2), (2,3)
+            psi = np.ones(16, dtype=np.complex128) / 4
+            for x in range(16):
+                b0 = (x >> 3) & 1
+                b1 = (x >> 2) & 1
+                b2 = (x >> 1) & 1
+                b3 = x & 1
+                psi[x] *= (-1) ** (b0 * b1 + b1 * b2 + b2 * b3)
+
+            rho = np.outer(psi, np.conj(psi))
+
+            Z = np.array([[1, 0], [0, -1]], dtype=np.complex128)
+            I2 = np.eye(2, dtype=np.complex128)
+
+            def embed_single(op, q, n=4):
+                mats = [I2] * n
+                mats[q] = op
+                out = mats[0]
+                for m in mats[1:]:
+                    out = np.kron(out, m)
+                return out
+
+            def local_dephase(rho, p, q):
+                Zq = embed_single(Z, q)
+                return (1 - p) * rho + p * (Zq @ rho @ Zq)
+
+            for q in range(4):
+                rho = local_dephase(rho, cfg.epsilon, q)
+
+            mixed_block = rho
+
+
         else:
             raise ValueError(f"Unknown initial_state: {cfg.initial_state}")
 
-        bulk = [mixed_block for _ in range(cfg.L // 2)]
+        if cfg.initial_state == "W_mixed":
+            bulk = [mixed_block for _ in range(cfg.L // 3)]
+        elif cfg.initial_state == "cluster_locally_mixed":
+            bulk = [mixed_block for _ in range(cfg.L // 4)]
+        else:
+            bulk = [mixed_block for _ in range(cfg.L // 2)]
+
         return li.State.build_finite(bulk, 1)
 
     initial_state = build_initial_state(cfg)
