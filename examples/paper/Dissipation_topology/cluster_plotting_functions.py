@@ -24,6 +24,16 @@ def load_all_data(h5_path, local_marker_path, times_lite_path):
 
     return opdm_t_corr, times_corr, local_marker_data, loaded_times
 
+def load_info_data(info_latt_path, times_lite_path):
+
+    with open(info_latt_path, "rb") as f:
+        info_latt_data = pickle.load(f)
+
+    with open(times_lite_path, "rb") as f:
+        loaded_times = pickle.load(f)
+
+    return info_latt_data, loaded_times
+
 
 def calc_corr_evo_local_markers(opdm_t_corr, sites_corr):
     marker_per_t = {}

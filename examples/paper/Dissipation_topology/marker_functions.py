@@ -1,9 +1,44 @@
 import numpy as np
 from collections import defaultdict
 import itertools
+from functools import lru_cache
 import matplotlib.pyplot as plt
 
-def calc_opdm_operator(L,m,k):
+_BASIC_OPERATORS = {
+    "z": np.array([[1.0, 0.0], [0.0, -1.0]], dtype=np.complex128),
+    "+": np.array([[0.0, 1.0], [0.0, 0.0]], dtype=np.complex128),
+    "-": np.array([[0.0, 0.0], [1.0, 0.0]], dtype=np.complex128),
+    "1": np.eye(2, dtype=np.complex128),
+}
+
+
+@lru_cache(maxsize=64)
+def _cached_opdm_operators(L, m, k):
+    """Build each pair of OPDM operators once per (L, m, k)."""
+
+    def jordan_wigner_operator(site, ladder_operator):
+        labels = ["z"] * site + [ladder_operator] + ["1"] * (L - site - 1)
+
+        operator = _BASIC_OPERATORS[labels[0]].copy()
+        for label in labels[1:]:
+            operator = np.kron(operator, _BASIC_OPERATORS[label])
+
+        operator.setflags(write=False)
+        return operator
+
+    sigma_plus_m = jordan_wigner_operator(m, "+")
+    sigma_minus_m = jordan_wigner_operator(m, "-")
+    sigma_minus_k = jordan_wigner_operator(k, "-")
+
+    rho_eh = sigma_plus_m @ sigma_minus_k
+    rho_hh = sigma_minus_m @ sigma_minus_k
+
+    rho_eh.setflags(write=False)
+    rho_hh.setflags(write=False)
+
+    return rho_eh, rho_hh
+
+def calc_opdm_operator_no_optimization(L,m,k):
     basic_operators = {
         "z": np.array([[1.0, 0.0], [0.0, -1.0]], dtype=np.complex128),
         "+": np.array([[0.0, 1.0], [0.0, 0.0]], dtype=np.complex128),
@@ -65,7 +100,7 @@ def calc_opdm_operator(L,m,k):
 
     return rho
 
-def calc_opdm_from_rho(many_body_rho):
+def calc_opdm_from_rho_no_optimization(many_body_rho):
     """
     Calculates the one-particle-density matrix from a local many-body rho.
 
@@ -88,7 +123,7 @@ def calc_opdm_from_rho(many_body_rho):
 
     #print('L_loc', L_loc)
     for i, j in itertools.product(range(L_loc), range(L_loc)):
-        rho = calc_opdm_operator(L_loc, i, j)
+        rho = calc_opdm_operator_no_optimization(L_loc, i, j)
         hopp_matrix = many_body_rho @ rho['eh'][i, j]
         rho_opdm[i, j] = np.trace(hopp_matrix)  # 1st quadrant: sigma_plus_i sigma_minus_j
         pair_matrix = many_body_rho @ rho['hh'][i, j]
@@ -96,6 +131,42 @@ def calc_opdm_from_rho(many_body_rho):
 
     rho_opdm[: L_loc, L_loc : 2 * L_loc] = rho_opdm[L_loc : 2 * L_loc, : L_loc].T.conjugate()  # 2nd quadrant: sigma_plus_j sigma_plus_i
     rho_opdm[L_loc: 2 * L_loc, L_loc: 2 * L_loc] = np.eye(L_loc) - rho_opdm[:L_loc, :L_loc].conjugate() # 4th quadrant: sigma_minus_j sigma_plus_i
+
+    return rho_opdm
+
+def calc_opdm_operator(L, m, k):
+    rho_eh, rho_hh = _cached_opdm_operators(L, m, k)
+
+    return {
+        "eh": {(m, k): rho_eh},
+        "hh": {(m, k): rho_hh},
+    }
+
+def calc_opdm_from_rho(many_body_rho):
+    """
+    Calculates the one-particle density matrix from a local many-body rho.
+    """
+    L_loc = int(np.log2(len(many_body_rho)))
+    rho_opdm = np.zeros((2 * L_loc, 2 * L_loc), dtype=np.complex128)
+
+    for i, j in itertools.product(range(L_loc), range(L_loc)):
+        rho_eh, rho_hh = _cached_opdm_operators(L_loc, i, j)
+
+        # Equivalent to trace(many_body_rho @ operator), without creating
+        # the full temporary matrix from the matrix multiplication.
+        rho_opdm[i, j] = np.einsum(
+            "ij,ji->", many_body_rho, rho_eh, optimize=True
+        )
+        rho_opdm[i + L_loc, j] = np.einsum(
+            "ij,ji->", many_body_rho, rho_hh, optimize=True
+        )
+
+    rho_opdm[:L_loc, L_loc : 2 * L_loc] = (
+        rho_opdm[L_loc : 2 * L_loc, :L_loc].T.conjugate()
+    )
+    rho_opdm[L_loc : 2 * L_loc, L_loc : 2 * L_loc] = (
+        np.eye(L_loc) - rho_opdm[:L_loc, :L_loc].conjugate()
+    )
 
     return rho_opdm
 

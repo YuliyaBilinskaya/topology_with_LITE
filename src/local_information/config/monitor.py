@@ -44,6 +44,7 @@ class DataConfig:
     times: bool = True
     system_size: bool = True
     density_matrix: bool = True
+    density_matrix_fix_l: int | None = None
     initial_state: str = ""
 
     def to_dict(self):
@@ -115,7 +116,7 @@ class DataContainer:
     config: DataConfig = DataConfig()
 
     def __post_init__(self):
-        self.get_default_observables = DefaultObservables()
+        self.get_default_observables = DefaultObservables(self.config)
         # hand over all default observables
         self._get_empty_container()
 
@@ -144,6 +145,15 @@ class DataContainer:
         default_obs_dict: dict[str, list] = dict()
         for field_name, value in unstructure(self.config).items():
             if field_name == "observables":
+                continue
+            if field_name == "density_matrix_fix_l":
+                continue
+            if field_name == "density_matrix":
+                if value:
+                    if self.config.density_matrix_fix_l is None:
+                        default_obs_dict["density_matrix"] = []
+                    else:
+                        default_obs_dict["density_matrix_fix_l"] = []
                 continue
             if getattr(self.config, field_name):
                 default_obs_dict[field_name] = []
@@ -315,7 +325,8 @@ class DefaultObservables:
     operator: SystemOperator = None
     density_matrix: LatticeDict = None
 
-    def __init__(self):
+    def __init__(self, config: DataConfig):
+        self.config = config
         self.observables = {
             "diffusion_const": self.get_diffusion_const,
             "diffusion_length": self.get_diffusion_length,
@@ -325,6 +336,7 @@ class DefaultObservables:
             "info_lattice": self.get_information_lattice,
             "info_current": self.get_information_current,
             "density_matrix": self.get_density_matrix,
+            "density_matrix_fix_l": self.get_density_matrix,
         }
 
     def __call__(
@@ -376,4 +388,14 @@ class DefaultObservables:
         return self.state.get_information_current(self.operator)
 
     def get_density_matrix(self):
-        return self.density_matrix
+        if self.config.density_matrix_fix_l is None:
+            return self.density_matrix
+
+        rho = self.density_matrix.deepcopy()
+        l_fix = self.config.density_matrix_fix_l
+
+        for key in list(rho.keys()):
+            if key.level > l_fix:
+                rho.pop(key, None)
+
+        return rho
