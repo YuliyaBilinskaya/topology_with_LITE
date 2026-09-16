@@ -28,7 +28,8 @@ def run_simulation(cfg, rank=0):
     script_dir = os.path.dirname(os.path.abspath(__file__))
 
     J_values = [cfg.J for _ in range(cfg.L)]
-    hamiltonian_couplings = [["xx", J_values]]
+    h_values = [cfg.h for _ in range(cfg.L)]
+    hamiltonian_couplings = [["xx", J_values], ['z', h_values]]
 
     list_dis = [cfg.dissipation for _ in range(cfg.L)]
     jump_couplings = [["tbd", list_dis]]

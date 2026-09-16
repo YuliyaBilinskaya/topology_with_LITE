@@ -10,6 +10,7 @@ class RunConfig:
     L: int
     dissipation: float
     J: float
+    h: float
     steps: int
     epsilon: float
     shift: int
@@ -29,8 +30,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--min-l", type=int, default=3)
     parser.add_argument("--max-l", type=int, default=4)
     parser.add_argument("--L", help='System size', type=int, default=6)
-    parser.add_argument("--dissipation", help='Dissipation strength', type=float, default=0.2)
+    parser.add_argument("--dissipation", help='Dissipation strength', type=float, default=0.0)
     parser.add_argument("--J", help='Hopping', type=float, default=-1.0)
+    parser.add_argument("--h", help='Onsite potential', type=float, default=-0.0)
     parser.add_argument("--steps", help='Number of time steps', type=int, default=2)
     parser.add_argument("--epsilon", help='Mixedness of the initial state. eps=0.5 is max mixed', type=float, default=0.2)
     parser.add_argument("--shift", type=int, default=10)
@@ -42,6 +44,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     # Sweep arguments for MPI job farming
     parser.add_argument("--dissipation-list", type=float, nargs="*")
+    parser.add_argument("--h-list", type=float, nargs="*")
     parser.add_argument("--J-list", type=float, nargs="*")
     parser.add_argument("--L-list", type=int, nargs="*")
     parser.add_argument("--min-l-list", type=int, nargs="*")
@@ -58,13 +61,14 @@ def parse_args():
 def build_run_configs(args):
     dissipations = args.dissipation_list or [args.dissipation]
     couplings = args.J_list or [args.J]
+    onsite_potential = args.h_list or [args.h]
     sizes = args.L_list or [args.L]
     min_ls = args.min_l_list or [args.min_l]
     max_ls = args.max_l_list or [args.max_l]
 
     configs = []
-    for min_l, max_l, L, dissipation, J in itertools.product(
-        min_ls, max_ls, sizes, dissipations, couplings
+    for min_l, max_l, L, dissipation, J, h in itertools.product(
+        min_ls, max_ls, sizes, dissipations, couplings, onsite_potential
     ):
         configs.append(
             RunConfig(
@@ -73,6 +77,7 @@ def build_run_configs(args):
                 L=L,
                 dissipation=dissipation,
                 J=J,
+                h=h,
                 steps=args.steps,
                 epsilon=args.epsilon,
                 shift=args.shift,
