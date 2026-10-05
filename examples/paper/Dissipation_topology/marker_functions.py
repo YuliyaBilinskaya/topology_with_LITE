@@ -749,7 +749,35 @@ def plot_opdm_eigvals(loaded_dens_mat, loaded_times, L):
 
     return times_plot, eigvals_array
 
+def plot_opdm_eigvals_from_corr(opdm_t_corr, times_corr, site_range):
+    """
+    Plots OPDM eigenvalues from the full-system correlation matrix,
+    restricted to the block corresponding to site_range = (i_start, i_end).
+    """
+    i_start, i_end = site_range
+    L = opdm_t_corr.shape[-1] // 2
+    # BdG matrices are (2L, 2L): particle block is [0:L, 0:L], etc.
+    # Slice both spin/Nambu sectors for the selected sites
+    idx = list(range(i_start, i_end + 1)) + list(range(L + i_start, L + i_end + 1))
 
+    eigvals_per_t = []
+    for opdm in opdm_t_corr:
+        reduced_opdm = opdm[np.ix_(idx, idx)]
+        eigvals = np.sort(np.real_if_close(np.linalg.eigvalsh(reduced_opdm)))
+        eigvals_per_t.append(eigvals)
+
+    eigvals_array = np.array(eigvals_per_t)
+
+    fig, ax = plt.subplots()
+    for n in range(eigvals_array.shape[1]):
+        ax.scatter(times_corr, eigvals_array[:, n], marker='.', s=1, color='green')
+    ax.set_xlabel('Time')
+    ax.set_title(f'OPDM eigenvalues for sites {site_range}')
+    fig.tight_layout()
+    plt.savefig('/Users/yuliyabilinskaya/Desktop/opdm_eigvals_corr.pdf', dpi=200, bbox_inches='tight')
+    plt.show()
+    plt.close(fig)
+    return times_corr, eigvals_array
 
 def calc_marker_state_from_opdm(opdm, flatten=False):
     opdm = np.asarray(opdm, dtype=np.complex128)

@@ -12,10 +12,10 @@ from cluster_plotting_functions import *
 ################### Parameters ##################
 L = 50
 diss_strength = 0.05
-J = -1.0
+J = -0.5
 mu = -0.3
-min_l = 6
-max_l= 7
+min_l = 3
+max_l= 4
 init = 'triv'
 
 
@@ -45,6 +45,8 @@ opdm_t_corr, times_corr, ave_marker_per_t_lite, loaded_times = load_all_data(
     local_marker_path=os.path.join(checkpoint_folder, "local_marker.pkl"),
     times_lite_path=os.path.join(checkpoint_folder, "times.pkl"),
 )
+
+#plot_opdm_eigvals_from_corr(opdm_t_corr, times_corr, site_range=global_sites)
 
 ################### Calculate observables ##################
 
@@ -80,8 +82,8 @@ opdm_t_corr, times_corr, ave_marker_per_t_lite, loaded_times = load_all_data(
 #    global_sites=global_sites,
 #    use_lite_subsystems_for_OPDM=True,
 #    use_lite_subsystems_at_level=7,
-#    t_min=30,
-#    t_max=50,
+#    t_min=None,
+#    t_max=None,
 #)
 
 

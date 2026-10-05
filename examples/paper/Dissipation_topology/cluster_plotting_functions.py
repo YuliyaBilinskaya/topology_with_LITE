@@ -271,13 +271,13 @@ def plot_local_marker_comparison_lmin_lmax(
 
     fig, ax1 = plt.subplots()
     colors = [
-        #"#1b5e20", #green
-        #"#1565c0", #blue
-        #"#ef6c00", #orange
+        "#1b5e20", #green
+        "#1565c0", #blue
+        "#ef6c00", #orange
         "#6a1b9a", #purple
-        #"#c62828",
-        #"#00897b",
-        #"#8d6e63",
+        "#c62828",
+        "#00897b",
+        "#8d6e63",
     ]
 
     for i, key in enumerate(curve_keys):
