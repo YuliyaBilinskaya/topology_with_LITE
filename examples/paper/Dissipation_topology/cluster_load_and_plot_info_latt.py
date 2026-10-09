@@ -15,8 +15,8 @@ L = 50
 diss_strength = 0.05
 J = -1.0
 mu = -0.3
-min_l = 5
-max_l= 6
+min_l = 6
+max_l= 7
 init = 'triv'
 
 
@@ -35,7 +35,7 @@ info_latt, loaded_times = load_info_data(
     times_lite_path=os.path.join(checkpoint_folder, "times.pkl"),
 )
 
-#print(loaded_times)
+#print(loaded_times[-1])
 
 # ---- TEMP: export LITE times (delete after one run) ----
 #np.save("/Users/yuliyabilinskaya/Library/CloudStorage/OneDrive-KTH/Master_uppsats/code/Yuliya_code_OPEN_Kitaev/loaded_times.npy", np.asarray(loaded_times, dtype=float))
@@ -63,7 +63,7 @@ with tables.open_file(h5_path, mode="r") as h5:
     #opdm_t_corr = np.asarray(h5.root.opdm_t_corr.read())
     info_latt_t = np.asarray(h5.root.info_latt_t.read(), dtype=float)
     times_corr = np.asarray(h5.root.times_corr.read(), dtype=float)
-#print(times_corr)
+#print(len(times_corr))
 
 info_latt_corr = [
     {l + 1: np.array([val]) for l, val in enumerate(row)}
@@ -83,7 +83,7 @@ info_latt_corr = [
 #    times_corr,
 #    t_min=0,
 #    t_max=None,
-#    fix_l=5,
+#    fix_l=None,
 #    elev=40,
 #    azim=-60,
 #)
@@ -116,19 +116,23 @@ info_latt_corr = [
 #    # scales=[0, 1, 2, 3],  # optional: only some ell values
 #)
 
+#_LARGE_SAVESTRIDE_FULL_EVO
+#_shift0
+
 #plot_info_per_scale_diff_2d_common_time(
 #    info_latt_corr, times_corr,
 #    info_latt_bits, loaded_times,
 #    fix_l_a=5,
 #    fix_l_b=5,
-#    t_min=0, t_max=2,
-#    #scales=[5],  # optional: only some ell values
+#    t_min=25, t_max=30,
+#    #scales=[4],  # optional: only some ell values
 #)
+#
 
-#plot_total_info_vs_time(
-#    info_latt_corr, times_corr,
-#    info_latt_bits, loaded_times,
-#    fix_l_a=5,
-#    fix_l_b=5,
-#    t_min=0, t_max=None,
-#)
+plot_total_info_vs_time(
+    info_latt_corr, times_corr,
+    info_latt_bits, loaded_times,
+    fix_l_a=5,
+    fix_l_b=5,
+    t_min=0, t_max=16,
+)

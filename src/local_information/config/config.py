@@ -100,7 +100,7 @@ class TimeEvolutionConfig(Config):
     # maximum decimal value for which to density matrices are assumed to be identical.
     system_size_tol: float = 1e-12
     # shift to ensure stability in the presence of density matrices with small eigenvalues
-    shift: float = 10.0
+    shift: float = 0.0 #10.0
     # save configs
     save_checkpoint: bool = True
     # folder to store data

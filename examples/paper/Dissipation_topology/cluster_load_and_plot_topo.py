@@ -12,10 +12,10 @@ from cluster_plotting_functions import *
 ################### Parameters ##################
 L = 50
 diss_strength = 0.05
-J = -0.5
+J = -1.0
 mu = -0.3
-min_l = 3
-max_l= 4
+min_l = 4
+max_l= 5
 init = 'triv'
 
 
@@ -81,24 +81,29 @@ opdm_t_corr, times_corr, ave_marker_per_t_lite, loaded_times = load_all_data(
 #    init=init,
 #    global_sites=global_sites,
 #    use_lite_subsystems_for_OPDM=True,
-#    use_lite_subsystems_at_level=7,
-#    t_min=None,
-#    t_max=None,
+#    use_lite_subsystems_at_level=5,
+#    t_min=30,
+#    t_max=50,
+#    t_line=None,
 #)
 
 
-#plot_onsite_occupation_lmin_lmax_family(
-#    results_dir=data_filepath,
-#    diss_strength=diss_strength,
-#    J=J,
-#    L=L,
-#    init=init,
-#    global_sites=global_sites,
-#    t_min=0,
-#    t_max=4,
-#)
+plot_local_marker_diff_lmin_lmax_family(
+    results_dir=data_filepath,
+    diss_strength=diss_strength,
+    J=J,
+    L=L,
+    mu=mu,
+    init=init,
+    global_sites=global_sites,
+    use_lite_subsystems_for_OPDM=True,
+    use_lite_subsystems_at_level=4,     # l_min - 1
+    t_min=None,
+    t_max=None,
+    t_line=None,                        # e.g. 2.0 for a dashed vertical line
+)
 
-
+#
 
 #################### To check exact results ##############
 #subsys = (2, 3.5)

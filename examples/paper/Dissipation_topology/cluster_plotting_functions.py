@@ -247,6 +247,7 @@ def plot_local_marker_comparison_lmin_lmax(
     truncate_to_common_times=False,
     t_min=None,
     t_max=None,
+    t_line=None,
 ):
     def in_range(value, selected_range):
         start, stop = selected_range
@@ -271,13 +272,13 @@ def plot_local_marker_comparison_lmin_lmax(
 
     fig, ax1 = plt.subplots()
     colors = [
-        "#1b5e20", #green
-        "#1565c0", #blue
-        "#ef6c00", #orange
+        #"#1b5e20", #green
+        #"#1565c0", #blue
+        #"#ef6c00", #orange
         "#6a1b9a", #purple
-        "#c62828",
-        "#00897b",
-        "#8d6e63",
+        #"#c62828",
+        #"#00897b",
+        #"#8d6e63",
     ]
 
     for i, key in enumerate(curve_keys):
@@ -294,12 +295,14 @@ def plot_local_marker_comparison_lmin_lmax(
                     f"{idx}, got {type(marker_t)}"
                 )
 
-            ave_marker_per_t_lite[idx] = (
-                average_lite_marker_at_global_sites(
-                    marker_t=marker_t,
-                    global_sites=global_sites_i,
-                )
+            value = average_lite_marker_at_global_sites(
+                marker_t=marker_t,
+                global_sites=global_sites_i,
+                level=key[0] - 1,  # key=(lmin,lmax), so LTM are calculated from the center of subsystems at level l_min - 1
             )
+            if value is None:
+                continue
+            ave_marker_per_t_lite[idx] = value
 
         times_lite = np.array([loaded_times_i[idx] for idx in ave_marker_per_t_lite.keys()], dtype=float)
         values_lite = np.array(list(ave_marker_per_t_lite.values()), dtype=float)
@@ -372,6 +375,8 @@ def plot_local_marker_comparison_lmin_lmax(
     )
 
     ax1.set_xlabel('Time')
+    if t_line is not None:
+        ax1.axvline(t_line, color='black', linestyle='--', linewidth=1.0)
     #ax1.set_ylabel(r'$\sum_{i=2}^{L-1} m_i \,/\, (L-2)$', color='black')
     ax1.tick_params(axis='y', labelcolor='black')
     ax1.legend()
@@ -562,7 +567,7 @@ def plot_onsite_occupation_comparison_lmin_lmax(
     plt.close(fig)
 
 
-def average_lite_marker_at_global_sites(marker_t, global_sites):
+def average_lite_marker_at_global_sites(marker_t, global_sites, level):
     """
     Average the LITE marker over exactly the requested global sites.
 
@@ -574,12 +579,16 @@ def average_lite_marker_at_global_sites(marker_t, global_sites):
     global_start, global_stop = global_sites
     requested_sites = range(global_start, global_stop + 1)
 
-    # The level can change between timesteps.
-    max_level = max(key.level for key in marker_t)
+    # Use the requested level if given; otherwise the highest stored level
+    # (the level can change between timesteps).
+    max_level = level if level is not None else max(key.level for key in marker_t)
     max_level_keys = [
         key for key in marker_t
         if key.level == max_level
     ]
+    if not max_level_keys:
+        return None  # requested level not stored at this timestep
+
 
     # Center index for this timestep's actual maximum level.
     local_center = max_level // 2
@@ -630,96 +639,6 @@ def average_lite_marker_at_global_sites(marker_t, global_sites):
 
     return float(np.mean(marker_values))
 
-def plot_onsite_occupation_lmin_lmax_family(
-    results_dir,
-    diss_strength,
-    J,
-    L,
-    init,
-    global_sites,
-    corr_label='Correlation matrix evolution',
-    save_path="/Users/yuliyabilinskaya/Desktop/topo_onsite_occupation_comparison_lmin_lmax.pdf",
-    use_lines=True,
-    truncate_to_common_times=False,
-    t_min=None,
-    t_max=None,
-):
-    import os
-    import re
-
-    def lite_selection_from_global_sites(global_sites, lmax_val):
-        if lmax_val % 2 == 0:
-            center_site = lmax_val // 2
-            subsys = global_sites
-            sites_lite = (center_site, center_site)
-        else:
-            center_site = lmax_val // 2
-            subsys = (global_sites[0] + 0.5, global_sites[1] + 0.5)
-            sites_lite = (center_site, center_site)
-
-        return subsys, sites_lite
-
-    corr_path = os.path.join(
-        results_dir,
-        f"opdm_t_corr_diss={diss_strength}_J={J}_L={L}_init=mixed_{init}.h5",
-    )
-
-    pattern = re.compile(
-        rf"^xx_diss={diss_strength}_J={J}_L={L}_lmin=(\d+)_lmax=(\d+)_init={init}_mixed$"
-    )
-
-    on_site_density_data_all = {}
-    loaded_times_all = {}
-    subsys_all = {}
-    sites_lite_all = {}
-
-    for folder in sorted(os.listdir(results_dir)):
-        match = pattern.match(folder)
-        if match is None:
-            continue
-
-        lmin_val = int(match.group(1))
-        lmax_val = int(match.group(2))
-        folder_path = os.path.join(results_dir, folder)
-        density_path = os.path.join(folder_path, "on_site_density.pkl")
-        times_lite_path = os.path.join(folder_path, "times.pkl")
-
-        if not os.path.isfile(density_path) or not os.path.isfile(times_lite_path):
-            continue
-
-        with open(density_path, "rb") as f:
-            on_site_density_data = pickle.load(f)
-        with open(times_lite_path, "rb") as f:
-            loaded_times = pickle.load(f)
-
-        subsys_i, sites_lite_i = lite_selection_from_global_sites(global_sites, lmax_val)
-
-        key = (lmin_val, lmax_val)
-        on_site_density_data_all[key] = on_site_density_data
-        loaded_times_all[key] = loaded_times
-        subsys_all[key] = subsys_i
-        sites_lite_all[key] = sites_lite_i
-
-    with tables.open_file(corr_path, mode="r") as h5:
-        opdm_t_corr = np.array(h5.root.opdm_t_corr.read())
-        times_corr = np.array(h5.root.times_corr.read())
-
-    return plot_onsite_occupation_comparison_lmin_lmax(
-        on_site_density_data=on_site_density_data_all,
-        loaded_times=loaded_times_all,
-        opdm_t_corr=opdm_t_corr,
-        times_corr=times_corr,
-        subsys=subsys_all,
-        sites_lite=sites_lite_all,
-        corr_label=corr_label,
-        save_path=save_path,
-        use_lines=use_lines,
-        truncate_to_common_times=truncate_to_common_times,
-        t_min=t_min,
-        t_max=t_max,
-    )
-
-
 
 def plot_local_marker_lmin_lmax_family(
     results_dir,
@@ -736,11 +655,12 @@ def plot_local_marker_lmin_lmax_family(
     truncate_to_common_times=False,
     t_min=None,
     t_max=None,
+    t_line=None,
 ):
     import os
     import re
 
-    corr_label = rf'Correlation matrix evolution ($\ell_{{\max}}={use_lite_subsystems_at_level}$)'
+    corr_label = rf'Correlation matrix evolution ($\ell_{{\min}}-1={use_lite_subsystems_at_level}$)'
 
     corr_path = os.path.join(
         results_dir,
@@ -800,9 +720,228 @@ def plot_local_marker_lmin_lmax_family(
         truncate_to_common_times=truncate_to_common_times,
         t_min=t_min,
         t_max=t_max,
+        t_line=t_line,
     )
 
+def _match_common_times(times_a, times_b, atol=1e-6, rtol=1e-6):
+    """
+    Indices (idx_a, idx_b) of time points present in both arrays, matched with a
+    tolerance |t_a - t_b| <= atol + rtol*|t_b| (correlation-matrix times are float32,
+    LITE times float64). No interpolation: unmatched times are dropped.
+    """
+    times_a = np.asarray(times_a, dtype=float)
+    times_b = np.asarray(times_b, dtype=float)
+    if len(times_a) == 0 or len(times_b) == 0:
+        return np.array([], dtype=int), np.array([], dtype=int)
 
+    order_b = np.argsort(times_b)
+    tb_sorted = times_b[order_b]
+    n = len(tb_sorted)
+    pos = np.searchsorted(tb_sorted, times_a)
+    left = np.clip(pos - 1, 0, n - 1)
+    right = np.clip(pos, 0, n - 1)
+    nearest = np.where(
+        np.abs(times_a - tb_sorted[left]) <= np.abs(times_a - tb_sorted[right]),
+        left, right,
+    )
+    idx_b_all = order_b[nearest]
+    matched = np.abs(times_a - times_b[idx_b_all]) <= atol + rtol * np.abs(times_b[idx_b_all])
+
+    idx_a = np.where(matched)[0]
+    return idx_a, idx_b_all[matched]
+
+
+def plot_local_marker_diff_lmin_lmax(
+    local_marker_data,
+    loaded_times,
+    ave_marker_per_t_corr,
+    times_corr,
+    global_sites,
+    lite_labels=None,
+    save_path="/Users/yuliyabilinskaya/Desktop/topo_marker_difference_lmin_lmax.pdf",
+    use_lines=True,
+    t_min=None,
+    t_max=None,
+    t_line=None,
+):
+    """
+    Plots  <marker>_corr(t) - <marker>_LITE(t)  for every (lmin, lmax) run, at the
+    common time points only (no interpolation). The LITE marker is taken from
+    the level lmin - 1 subsystems.
+    local_marker_data, loaded_times, global_sites: dicts keyed by (lmin, lmax).
+    """
+    corr_values = np.array(list(ave_marker_per_t_corr.values()), dtype=float)
+    corr_times = np.array(times_corr, dtype=float)
+
+    fig, ax1 = plt.subplots()
+    colors = [
+        #"#1b5e20",  # green
+        "#1565c0",  # blue
+        #"#ef6c00",  # orange
+        #"#6a1b9a",  # purple
+        "#c62828",
+        "#00897b",
+        "#8d6e63",
+    ]
+
+    for i, key in enumerate(local_marker_data.keys()):
+        marker_data_i = local_marker_data[key]
+        loaded_times_i = loaded_times[key]
+        global_sites_i = global_sites[key]
+
+        ave_marker_per_t_lite = {}
+        for idx, marker_t in enumerate(marker_data_i):
+            if not isinstance(marker_t, dict):
+                raise ValueError(
+                    f"Expected dict of subsystem markers at time index "
+                    f"{idx}, got {type(marker_t)}"
+                )
+            value = average_lite_marker_at_global_sites(
+                marker_t=marker_t,
+                global_sites=global_sites_i,
+                level=key[0] - 1,          # l_min - 1; key = (lmin, lmax)
+            )
+            if value is None:
+                continue                   # level lmin-1 not stored yet
+            ave_marker_per_t_lite[idx] = value
+
+        times_lite = np.array(
+            [loaded_times_i[idx] for idx in ave_marker_per_t_lite.keys()], dtype=float
+        )
+        values_lite = np.array(list(ave_marker_per_t_lite.values()), dtype=float)
+
+        # difference at the common time points only
+        idx_corr, idx_lite = _match_common_times(corr_times, times_lite)
+        t_common = corr_times[idx_corr]
+        diff = corr_values[idx_corr] - values_lite[idx_lite]
+
+        mask = np.ones(len(t_common), dtype=bool)
+        if t_min is not None:
+            mask &= t_common >= t_min
+        if t_max is not None:
+            mask &= t_common <= t_max
+        t_common, diff = t_common[mask], diff[mask]
+
+        color = colors[i % len(colors)]
+
+        if lite_labels is None:
+            label = rf'$\ell_{{\min}}={key[0]}, \ell_{{\max}}={key[1]}$'
+        elif isinstance(lite_labels, dict):
+            label = lite_labels[key]
+        else:
+            label = lite_labels[i]
+
+        if use_lines:
+            ax1.plot(t_common, diff, '--', color=color, linewidth=1.0)
+
+        #ax1.scatter(
+        #    t_common,
+        #    diff,
+        #    marker='o',
+        #    edgecolors=color,
+        #    facecolors='none',
+        #    linewidths=1.0,
+        #    s=25,
+        #    label=label,
+        #)
+
+    ax1.axhline(0, color='gray', linewidth=0.5, linestyle=':')
+    if t_line is not None:
+        ax1.axvline(t_line, color='black', linestyle='--', linewidth=1.0)
+
+    ax1.set_xlabel('Time')
+    ax1.set_ylabel('Average local marker: correlation matrix − LITE')
+    ax1.legend()
+    plt.title('Difference in average local topological marker')
+    fig.tight_layout()
+
+    if save_path is not None:
+        plt.savefig(save_path, dpi=200, bbox_inches='tight')
+
+    plt.show()
+    plt.close(fig)
+
+
+def plot_local_marker_diff_lmin_lmax_family(
+    results_dir,
+    diss_strength,
+    J,
+    L,
+    mu,
+    init,
+    global_sites,
+    use_lite_subsystems_for_OPDM=False,
+    use_lite_subsystems_at_level=None,
+    save_path="/Users/yuliyabilinskaya/Desktop/topo_marker_difference_lmin_lmax.pdf",
+    use_lines=True,
+    t_min=None,
+    t_max=None,
+    t_line=None,
+):
+    import os
+    import re
+
+    corr_path = os.path.join(
+        results_dir,
+        f"opdm_t_corr_diss={diss_strength}_J={J:g}_mu={mu}_L={L}_init=mixed_{init}.h5",
+    )
+
+    pattern = re.compile(
+        rf"^xx_diss={diss_strength}_J={J}_h={mu}_L={L}_lmin=(\d+)_lmax=(\d+)_init={init}_mixed$"
+    )
+
+    local_marker_data_all = {}
+    loaded_times_all = {}
+    global_sites_all = {}
+
+    for folder in sorted(os.listdir(results_dir)):
+        match = pattern.match(folder)
+        if match is None:
+            continue
+
+        lmin_val = int(match.group(1))
+        lmax_val = int(match.group(2))
+        folder_path = os.path.join(results_dir, folder)
+        local_marker_path = os.path.join(folder_path, "local_marker.pkl")
+        times_lite_path = os.path.join(folder_path, "times.pkl")
+
+        if not os.path.isfile(local_marker_path) or not os.path.isfile(times_lite_path):
+            continue
+
+        _, _, local_marker_data, loaded_times = load_all_data(
+            h5_path=corr_path,
+            local_marker_path=local_marker_path,
+            times_lite_path=times_lite_path,
+        )
+
+        key = (lmin_val, lmax_val)
+        local_marker_data_all[key] = local_marker_data
+        loaded_times_all[key] = loaded_times
+        global_sites_all[key] = global_sites
+
+    with tables.open_file(corr_path, mode="r") as h5:
+        opdm_t_corr = np.array(h5.root.opdm_t_corr.read())
+        times_corr = np.array(h5.root.times_corr.read())
+
+    ave_marker_per_t_corr = calc_corr_evo_local_markers(
+        opdm_t_corr,
+        global_sites,
+        use_lite_subsystems=use_lite_subsystems_for_OPDM,
+        lite_level=use_lite_subsystems_at_level,
+    )
+
+    return plot_local_marker_diff_lmin_lmax(
+        local_marker_data=local_marker_data_all,
+        loaded_times=loaded_times_all,
+        ave_marker_per_t_corr=ave_marker_per_t_corr,
+        times_corr=times_corr,
+        global_sites=global_sites_all,
+        save_path=save_path,
+        use_lines=use_lines,
+        t_min=t_min,
+        t_max=t_max,
+        t_line=t_line,
+    )
 
 def plot_info_latt_from_state(results_dir, diss_strength, time=None, InfoLattice_Norm=2):
     """
@@ -921,3 +1060,94 @@ def plot_info_latt_from_state(results_dir, diss_strength, time=None, InfoLattice
 
     print(f"Loaded checkpoint: {checkpoint_folder}")
     print(f"Plotted checkpoint time: {checkpoint_time}")
+
+
+
+def plot_onsite_occupation_lmin_lmax_family(
+    results_dir,
+    diss_strength,
+    J,
+    L,
+    init,
+    global_sites,
+    corr_label='Correlation matrix evolution',
+    save_path="/Users/yuliyabilinskaya/Desktop/topo_onsite_occupation_comparison_lmin_lmax.pdf",
+    use_lines=True,
+    truncate_to_common_times=False,
+    t_min=None,
+    t_max=None,
+):
+    import os
+    import re
+
+    def lite_selection_from_global_sites(global_sites, lmax_val):
+        if lmax_val % 2 == 0:
+            center_site = lmax_val // 2
+            subsys = global_sites
+            sites_lite = (center_site, center_site)
+        else:
+            center_site = lmax_val // 2
+            subsys = (global_sites[0] + 0.5, global_sites[1] + 0.5)
+            sites_lite = (center_site, center_site)
+
+        return subsys, sites_lite
+
+    corr_path = os.path.join(
+        results_dir,
+        f"opdm_t_corr_diss={diss_strength}_J={J}_L={L}_init=mixed_{init}.h5",
+    )
+
+    pattern = re.compile(
+        rf"^xx_diss={diss_strength}_J={J}_L={L}_lmin=(\d+)_lmax=(\d+)_init={init}_mixed$"
+    )
+
+    on_site_density_data_all = {}
+    loaded_times_all = {}
+    subsys_all = {}
+    sites_lite_all = {}
+
+    for folder in sorted(os.listdir(results_dir)):
+        match = pattern.match(folder)
+        if match is None:
+            continue
+
+        lmin_val = int(match.group(1))
+        lmax_val = int(match.group(2))
+        folder_path = os.path.join(results_dir, folder)
+        density_path = os.path.join(folder_path, "on_site_density.pkl")
+        times_lite_path = os.path.join(folder_path, "times.pkl")
+
+        if not os.path.isfile(density_path) or not os.path.isfile(times_lite_path):
+            continue
+
+        with open(density_path, "rb") as f:
+            on_site_density_data = pickle.load(f)
+        with open(times_lite_path, "rb") as f:
+            loaded_times = pickle.load(f)
+
+        subsys_i, sites_lite_i = lite_selection_from_global_sites(global_sites, lmax_val)
+
+        key = (lmin_val, lmax_val)
+        on_site_density_data_all[key] = on_site_density_data
+        loaded_times_all[key] = loaded_times
+        subsys_all[key] = subsys_i
+        sites_lite_all[key] = sites_lite_i
+
+    with tables.open_file(corr_path, mode="r") as h5:
+        opdm_t_corr = np.array(h5.root.opdm_t_corr.read())
+        times_corr = np.array(h5.root.times_corr.read())
+
+    return plot_onsite_occupation_comparison_lmin_lmax(
+        on_site_density_data=on_site_density_data_all,
+        loaded_times=loaded_times_all,
+        opdm_t_corr=opdm_t_corr,
+        times_corr=times_corr,
+        subsys=subsys_all,
+        sites_lite=sites_lite_all,
+        corr_label=corr_label,
+        save_path=save_path,
+        use_lines=use_lines,
+        truncate_to_common_times=truncate_to_common_times,
+        t_min=t_min,
+        t_max=t_max,
+    )
