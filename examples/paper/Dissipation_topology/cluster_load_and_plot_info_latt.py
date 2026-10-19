@@ -15,9 +15,10 @@ L = 50
 diss_strength = 0.05
 J = -1.0
 mu = -0.3
-min_l = 6
-max_l= 7
+min_l = 5
+max_l= 6
 init = 'triv'
+dt = 1e-2
 
 
 ################### Data paths ##################
@@ -28,7 +29,7 @@ data_filepath = os.path.join(script_dir, "results/cluster_results",)
 
 #-------------------LITE------------------------
 
-checkpoint_folder = os.path.join(data_filepath, f"xx_diss={diss_strength}_J={J}_h={mu}_L={L}_lmin={min_l}_lmax={max_l}_init={init}_mixed")
+checkpoint_folder = os.path.join(data_filepath, f"xx_diss={diss_strength}_J={J}_h={mu}_L={L}_lmin={min_l}_lmax={max_l}_init={init}_mixed_dt={dt}")
 
 info_latt, loaded_times = load_info_data(
     info_latt_path=os.path.join(checkpoint_folder, "info_lattice.pkl"),
@@ -56,7 +57,7 @@ for lattice_at_time in info_latt:
 
 h5_path = os.path.join(
     data_filepath,
-    f"opdm_t_corr_diss={diss_strength}_J={J:g}_mu={mu}_L={L}_init=mixed_{init}.h5",
+    f"opdm_t_corr_diss={diss_strength}_J={J:g}_mu={mu}_L={L}_init=mixed_{init}_dt={dt}.h5",
 )
 
 with tables.open_file(h5_path, mode="r") as h5:
@@ -112,27 +113,37 @@ info_latt_corr = [
 #    info_latt_bits, loaded_times,
 #    fix_l_a=5,
 #    fix_l_b=5,
-#    t_min=0, t_max=3,
+#    t_min=0, t_max=2.8,
 #    # scales=[0, 1, 2, 3],  # optional: only some ell values
 #)
 
-#_LARGE_SAVESTRIDE_FULL_EVO
-#_shift0
+#
+
 
 #plot_info_per_scale_diff_2d_common_time(
 #    info_latt_corr, times_corr,
 #    info_latt_bits, loaded_times,
+#    fix_l_a=4,
+#    fix_l_b=4,
+#    t_min=0, t_max=None,
+#    scales=[4],  # optional: only some ell values
+#)
+
+plot_info_per_scale_diff_lmin_lmax(
+    info_latt_corr, times_corr,
+    lmin_lmax_pairs=[(4, 5), (5, 6), (6, 7)],
+    data_filepath=data_filepath,
+    diss_strength=diss_strength, J=J, mu=mu, L=L, init=init, dt=dt,
+    scales=[0],
+    t_min=0, t_max=None,
+)
+#_thresh_1e-3
+
+
+#plot_total_info_vs_time(
+#    info_latt_corr, times_corr,
+#    info_latt_bits, loaded_times,
 #    fix_l_a=5,
 #    fix_l_b=5,
-#    t_min=25, t_max=30,
-#    #scales=[4],  # optional: only some ell values
+#    t_min=0, t_max=16,
 #)
-#
-
-plot_total_info_vs_time(
-    info_latt_corr, times_corr,
-    info_latt_bits, loaded_times,
-    fix_l_a=5,
-    fix_l_b=5,
-    t_min=0, t_max=16,
-)

@@ -162,7 +162,8 @@ class RungeKuttaSolver(ABC):
                     allowed_step_size[j] = (self.step_size * 1.05) / 0.9
 
             # compare optimal step size to actual step size
-            if np.any(allowed_step_size < self.step_size):
+            # (rejection of a step only happens in adaptive mode)
+            if self.config.adaptive_step and np.any(allowed_step_size < self.step_size):
                 # redo calculation with smaller stepsize
                 self.step_size = np.min(allowed_step_size) * 0.9
             else:
@@ -174,8 +175,10 @@ class RungeKuttaSolver(ABC):
                     self.step_size = final_time - current_time
                 else:
                     time = current_time + self.step_size
-                    # update the step size
-                    self.step_size = np.min(allowed_step_size) * 0.9
+                    # update the step size (only in adaptive mode;
+                    # in fixed mode the step size is left untouched)
+                    if self.config.adaptive_step:
+                        self.step_size = np.min(allowed_step_size) * 0.9
                     repeat = False
 
         tot = rho_dict + total_high

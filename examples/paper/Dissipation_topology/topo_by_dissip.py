@@ -175,6 +175,13 @@ def run_simulation(cfg, rank=0):
         min_l=cfg.min_l,
         max_l=cfg.max_l,
         shift=cfg.shift,
+        measure_stride=args.measure_stride,
+        runge_kutta_config=li.config.RungeKuttaConfig(
+            step_size=cfg.step_size,
+            # --fixed-step not given -> adaptive_step=True  (adaptive step)
+            # --fixed-step given     -> adaptive_step=False (constant step = --step-size)
+            adaptive_step=not args.fixed_step,
+        ),
     )
 
     system = li.OpenSystem(

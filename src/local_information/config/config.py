@@ -50,8 +50,11 @@ class RungeKuttaConfig(Config):
     RK_order: str = "45"
     # maximum allowed error in the RK method
     max_error: float = 1e-8
-    # adaptive step size
+    # initial step size (constant step size if adaptive_step is False)
     step_size: float = 0.015
+    # True: adaptive step size with error control
+    # False: integrate with the constant step_size, no error control
+    adaptive_step: bool = True
 
     def __post_init__(self):
         assert self.max_error > 0, ValueError("max_error must be >0")
@@ -101,6 +104,10 @@ class TimeEvolutionConfig(Config):
     system_size_tol: float = 1e-12
     # shift to ensure stability in the presence of density matrices with small eigenvalues
     shift: float = 0.0 #10.0
+    # measure observables only every `measure_stride`-th Runge-Kutta step (applicable for adaptive_step=False)
+    # (the last step of every evolve() call is always measured).
+    # 1 (default) = measure after every step
+    measure_stride: int = 1
     # save configs
     save_checkpoint: bool = True
     # folder to store data
@@ -120,6 +127,7 @@ class TimeEvolutionConfig(Config):
         assert self.system_size_tol > 0, ValueError("system_size_tol must be >0")
         assert self.max_l != self.min_l, ValueError("max_l and min_l must be different")
         assert self.shift >= 0, ValueError("shift must no be <=0")
+        assert self.measure_stride >= 1, ValueError("measure_stride must be >= 1")
 
         # setup logging
         if not self.logging_config.logging_folder:

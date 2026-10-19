@@ -231,6 +231,10 @@ class System(ABC):
         else:
             final_time = None
 
+        # bookkeeping for measure_stride: step counter and end time of this evolve() call
+        self._step_counter = 0
+        self._evolution_end = self.state.starting_time + max_evolution_time
+
         self._set_trigger()
 
         while self.state.current_time < self.state.starting_time + max_evolution_time:
@@ -269,8 +273,12 @@ class System(ABC):
         """
         # perform one Runge-Kutta step
         self._time_evolution_step(final_time=final_time)
-        # measure observables
-        self.measure(return_values=False)
+        self._step_counter += 1
+        # measure observables only every measure_stride-th step,
+        # and always on the last step of this evolve() call
+        is_last_step = self.state.current_time >= self._evolution_end - 1e-12
+        if self._step_counter % self.config.measure_stride == 0 or is_last_step:
+            self.measure(return_values=False)
         # minimize information if required
         self._minimize(checks=checks)
 

@@ -30,17 +30,21 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--min-l", type=int, default=3)
     parser.add_argument("--max-l", type=int, default=4)
     parser.add_argument("--L", help='System size', type=int, default=6)
-    parser.add_argument("--dissipation", help='Dissipation strength', type=float, default=0.0)
+    parser.add_argument("--dissipation", help='Dissipation strength', type=float, default=0.05)
     parser.add_argument("--J", help='Hopping', type=float, default=-1.0)
-    parser.add_argument("--h", help='Onsite potential', type=float, default=-0.0)
+    parser.add_argument("--h", help='Onsite potential', type=float, default=-0.3)
     parser.add_argument("--steps", help='Number of time steps', type=int, default=2)
     parser.add_argument("--epsilon", help='Mixedness of the initial state. eps=0.5 is max mixed', type=float, default=0.2)
-    parser.add_argument("--shift", type=int, default=10)
+    parser.add_argument("--shift", type=int, default=0)
     parser.add_argument("--evolve-time", help='One time step length', type=float, default=2.0)
     parser.add_argument("--step-size", help='Time integrator step size', type=float, default=0.01)
+    parser.add_argument("--fixed-step", action="store_true",
+                        help="Use a constant Runge-Kutta step (--step-size) instead of the adaptive one.")
+    parser.add_argument("--measure-stride", type=int, default=1,
+                        help="Measure observables only every N-th Runge-Kutta step (last step of each cycle is always measured).")
     parser.add_argument("--output-root", default="results")
     parser.add_argument("--threads", type=int, default=4)
-    parser.add_argument("--initial-state", choices=["triv_mixed", "Bell_mixed", "imperfect_Bell_mixed", "W_mixed", "cluster_locally_mixed"], default="W_mixed", help="Choice of initial state.")
+    parser.add_argument("--initial-state", choices=["triv_mixed", "Bell_mixed", "imperfect_Bell_mixed", "W_mixed", "cluster_locally_mixed"], default="triv_mixed", help="Choice of initial state.")
 
     # Sweep arguments for MPI job farming
     parser.add_argument("--dissipation-list", type=float, nargs="*")
