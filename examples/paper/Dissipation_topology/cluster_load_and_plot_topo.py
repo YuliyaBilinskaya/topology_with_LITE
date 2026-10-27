@@ -14,9 +14,10 @@ L = 50
 diss_strength = 0.05
 J = -1.0
 mu = -0.3
-min_l = 4
-max_l= 5
+min_l = 5
+max_l= 6
 init = 'triv'
+dt=1e-2
 
 
 ##################################################
@@ -35,13 +36,13 @@ sites_corr = global_sites
 ################### Data paths ##################
 script_dir = os.path.dirname(os.path.abspath(__file__))
 data_filepath = os.path.join(script_dir, "results/cluster_results",)
-checkpoint_folder = os.path.join(data_filepath, f"xx_diss={diss_strength}_J={J}_h={mu}_L={L}_lmin={min_l}_lmax={max_l}_init={init}_mixed")
+checkpoint_folder = os.path.join(data_filepath, f"xx_diss={diss_strength}_J={J}_h={mu}_L={L}_lmin={min_l}_lmax={max_l}_init={init}_mixed_dt={dt}")
 
 
 ################### Load data ##################
 
 opdm_t_corr, times_corr, ave_marker_per_t_lite, loaded_times = load_all_data(
-    h5_path=os.path.join(data_filepath, f"opdm_t_corr_diss={diss_strength}_J={J:g}_mu={mu}_L={L}_init=mixed_{init}.h5"),
+    h5_path=os.path.join(data_filepath, f"opdm_t_corr_diss={diss_strength}_J={J:g}_mu={mu}_L={L}_init=mixed_{init}_dt={dt}.h5"),
     local_marker_path=os.path.join(checkpoint_folder, "local_marker.pkl"),
     times_lite_path=os.path.join(checkpoint_folder, "times.pkl"),
 )
@@ -88,22 +89,52 @@ opdm_t_corr, times_corr, ave_marker_per_t_lite, loaded_times = load_all_data(
 #)
 
 
-plot_local_marker_diff_lmin_lmax_family(
+#plot_local_marker_diff_lmin_lmax_family(
+#    results_dir=data_filepath,
+#    diss_strength=diss_strength,
+#    J=J,
+#    L=L,
+#    mu=mu,
+#    init=init,
+#    dt=dt,
+#    global_sites=global_sites,
+#    use_lite_subsystems_for_OPDM=True,
+#    use_lite_subsystems_at_level=None,     # l_min - 1
+#    t_min=None,
+#    t_max=None,
+#    t_line=None,                        # e.g. 2.0 for a dashed vertical line
+#)
+
+plot_onsite_density_diff_lmin_lmax_family(
     results_dir=data_filepath,
-    diss_strength=diss_strength,
-    J=J,
-    L=L,
-    mu=mu,
-    init=init,
-    global_sites=global_sites,
-    use_lite_subsystems_for_OPDM=True,
-    use_lite_subsystems_at_level=4,     # l_min - 1
-    t_min=None,
-    t_max=None,
-    t_line=None,                        # e.g. 2.0 for a dashed vertical line
+    diss_strength=diss_strength, J=J, L=L, mu=mu, init=init, dt=dt,
+    sites=(20,30),          # None -> every site | 25 -> one site | (20, 30) -> inclusive range
+    average_sites=True,
+    t_min=None, t_max=None,
+    quantity='lite',
 )
 
-#
+#plot_onsite_density_3D_diff_lmin_lmax_family(
+#    results_dir=data_filepath,
+#    diss_strength=diss_strength, J=J, L=L, mu=mu, init=init, dt=dt,
+#    sites=None,            # all sites, or e.g. (10, 40)
+#    t_max=None,              # optional
+#    quantity="corr",    #"diff", "corr", #lite"
+#)
+
+#plot_onsite_density_2D_diff_lmin_lmax_family(
+#    results_dir=data_filepath, diss_strength=diss_strength, J=J, L=L,
+#    mu=mu, init=init, dt=dt,
+#    sites=None,
+#    t_min=None,
+#    t_max=None,
+#    shared_clim=True,
+#    cmap="RdBu_r",
+#    figsize=(8, 6),
+#    save_path=None,
+#)
+
+#_thresh_1e-3
 
 #################### To check exact results ##############
 #subsys = (2, 3.5)

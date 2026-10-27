@@ -15,8 +15,8 @@ L = 50
 diss_strength = 0.05
 J = -1.0
 mu = -0.3
-min_l = 5
-max_l= 6
+min_l = 6
+max_l= 7
 init = 'triv'
 dt = 1e-2
 
@@ -120,24 +120,35 @@ info_latt_corr = [
 #
 
 
-#plot_info_per_scale_diff_2d_common_time(
+plot_info_per_scale_diff_2d_common_time(
+    info_latt_corr, times_corr,
+    info_latt_bits, loaded_times,
+    fix_l_a=5,
+    fix_l_b=5,
+    t_min=2.5, t_max=7,
+    scales=[0,1,2,3,4],  # optional: only some ell values
+    normalize=None, #"tot_info", "scale_info", None
+    total_error=False,
+)
+
+#plot_info_per_scale_diff_lmin_lmax(
 #    info_latt_corr, times_corr,
-#    info_latt_bits, loaded_times,
-#    fix_l_a=4,
-#    fix_l_b=4,
-#    t_min=0, t_max=None,
-#    scales=[4],  # optional: only some ell values
+#    lmin_lmax_pairs=[(4, 5), (5, 6), (6, 7)],
+#    data_filepath=data_filepath,
+#    diss_strength=diss_strength, J=J, mu=mu, L=L, init=init, dt=dt,
+#    scales=[4],
+#    t_min=None, t_max=None,
+#    ylim=None,
 #)
 
-plot_info_per_scale_diff_lmin_lmax(
-    info_latt_corr, times_corr,
-    lmin_lmax_pairs=[(4, 5), (5, 6), (6, 7)],
-    data_filepath=data_filepath,
-    diss_strength=diss_strength, J=J, mu=mu, L=L, init=init, dt=dt,
-    scales=[0],
-    t_min=0, t_max=None,
-)
-#_thresh_1e-3
+#plot_info_per_scale_diff_min_thresh(
+#    info_latt_corr, times_corr,
+#    thresholds=[1e-2, 1e-3, 1e-4],
+#    data_filepath=data_filepath,
+#    diss_strength=diss_strength, J=J, mu=mu, L=L, init=init, dt=dt,
+#    scales=[5],
+#    t_min=0, t_max=None,
+#)
 
 
 #plot_total_info_vs_time(

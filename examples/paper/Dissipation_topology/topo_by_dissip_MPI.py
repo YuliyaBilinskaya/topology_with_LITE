@@ -153,9 +153,10 @@ def run_simulation(cfg, rank=0):
         return density_dict
 
     data_config = li.DataConfig(
-        info_lattice=False,
-        density_matrix=False,
-        observables=[local_marker, on_site_density],
+        info_lattice=True,
+        density_matrix=True,
+        density_matrix_fix_l=1,
+        observables=[local_marker],
     )
 
     data = li.DataContainer(config=data_config)

@@ -1,4 +1,5 @@
 import pickle
+import os
 import matplotlib.pyplot as plt
 from marker_functions import *
 import tables
@@ -770,21 +771,23 @@ def plot_local_marker_diff_lmin_lmax(
     the level lmin - 1 subsystems.
     local_marker_data, loaded_times, global_sites: dicts keyed by (lmin, lmax).
     """
-    corr_values = np.array(list(ave_marker_per_t_corr.values()), dtype=float)
+
     corr_times = np.array(times_corr, dtype=float)
 
-    fig, ax1 = plt.subplots()
+    fig, ax1 = plt.subplots(figsize=(15, 5))
     colors = [
-        #"#1b5e20",  # green
+        "#1b5e20",  # green
         "#1565c0",  # blue
-        #"#ef6c00",  # orange
-        #"#6a1b9a",  # purple
+        "#ef6c00",  # orange
+        "#6a1b9a",  # purple
         "#c62828",
         "#00897b",
         "#8d6e63",
     ]
 
     for i, key in enumerate(local_marker_data.keys()):
+        corr_i = ave_marker_per_t_corr[key] if key in ave_marker_per_t_corr else ave_marker_per_t_corr  # ADD
+        corr_values = np.array(list(corr_i.values()), dtype=float)
         marker_data_i = local_marker_data[key]
         loaded_times_i = loaded_times[key]
         global_sites_i = global_sites[key]
@@ -832,7 +835,7 @@ def plot_local_marker_diff_lmin_lmax(
             label = lite_labels[i]
 
         if use_lines:
-            ax1.plot(t_common, diff, '--', color=color, linewidth=1.0)
+            ax1.plot(t_common, diff, '-', color=color, linewidth=1.4, label=label)
 
         #ax1.scatter(
         #    t_common,
@@ -869,6 +872,7 @@ def plot_local_marker_diff_lmin_lmax_family(
     L,
     mu,
     init,
+    dt,
     global_sites,
     use_lite_subsystems_for_OPDM=False,
     use_lite_subsystems_at_level=None,
@@ -883,11 +887,11 @@ def plot_local_marker_diff_lmin_lmax_family(
 
     corr_path = os.path.join(
         results_dir,
-        f"opdm_t_corr_diss={diss_strength}_J={J:g}_mu={mu}_L={L}_init=mixed_{init}.h5",
+        f"opdm_t_corr_diss={diss_strength}_J={J:g}_mu={mu}_L={L}_init=mixed_{init}_dt={dt}.h5",
     )
 
     pattern = re.compile(
-        rf"^xx_diss={diss_strength}_J={J}_h={mu}_L={L}_lmin=(\d+)_lmax=(\d+)_init={init}_mixed$"
+        rf"^xx_diss={diss_strength}_J={J}_h={mu}_L={L}_lmin=(\d+)_lmax=(\d+)_init={init}_mixed_dt={dt}$"
     )
 
     local_marker_data_all = {}
@@ -923,12 +927,20 @@ def plot_local_marker_diff_lmin_lmax_family(
         opdm_t_corr = np.array(h5.root.opdm_t_corr.read())
         times_corr = np.array(h5.root.times_corr.read())
 
-    ave_marker_per_t_corr = calc_corr_evo_local_markers(
-        opdm_t_corr,
-        global_sites,
-        use_lite_subsystems=use_lite_subsystems_for_OPDM,
-        lite_level=use_lite_subsystems_at_level,
-    )
+    # one correlation-matrix reference per run, at that run's own level lmin - 1
+    if use_lite_subsystems_for_OPDM:
+        levels = sorted({lmin - 1 for (lmin, lmax) in local_marker_data_all})
+        corr_by_level = {
+            lvl: calc_corr_evo_local_markers(
+                opdm_t_corr, global_sites,
+                use_lite_subsystems=True, lite_level=lvl,
+            )
+            for lvl in levels
+        }
+        ave_marker_per_t_corr = {key: corr_by_level[key[0] - 1] for key in local_marker_data_all}
+    else:
+        ref = calc_corr_evo_local_markers(opdm_t_corr, global_sites, use_lite_subsystems=False)
+        ave_marker_per_t_corr = {key: ref for key in local_marker_data_all}
 
     return plot_local_marker_diff_lmin_lmax(
         local_marker_data=local_marker_data_all,
@@ -942,6 +954,475 @@ def plot_local_marker_diff_lmin_lmax_family(
         t_max=t_max,
         t_line=t_line,
     )
+
+
+def load_lite_onsite_density(folder, L):
+    """
+    On-site density of one LITE run as an array (n_times, L) (column = global site),
+    together with the LITE times.
+
+    1. If the observable `on_site_density.pkl` was saved, its level-0 entries are used.
+    2. Otherwise it is computed from `density_matrix_fix_l.pkl`: the level-0 (single-site)
+       density matrices, with the same definition as the `on_site_density` observable
+       (diagonal of the particle block of the OPDM).
+    """
+    import os
+
+    with open(os.path.join(folder, "times.pkl"), "rb") as f:
+        times = np.asarray(pickle.load(f), dtype=float)
+
+    density_path = os.path.join(folder, "on_site_density.pkl")
+    dm_path = os.path.join(folder, "density_matrix_fix_l.pkl")
+
+    density = np.full((len(times), L), np.nan)
+
+    if os.path.isfile(density_path):
+        with open(density_path, "rb") as f:
+            data = pickle.load(f)
+        for t_idx, snap in enumerate(data):
+            for key, values in snap.items():
+                if key.level == 0:
+                    density[t_idx, int(round(key.coord))] = float(np.asarray(values)[0])
+        source = "on_site_density.pkl"
+    elif os.path.isfile(dm_path):
+        with open(dm_path, "rb") as f:
+            data = pickle.load(f)
+        for t_idx, snap in enumerate(data):
+            for key, rho in snap.items():
+                if key.level == 0:                       # single-site reduced density matrix
+                    opdm = calc_opdm_from_rho(rho)
+                    density[t_idx, int(round(key.coord))] = float(np.real(opdm[0, 0]))
+        source = "density_matrix_fix_l.pkl"
+    else:
+        raise FileNotFoundError(
+            f"Neither on_site_density.pkl nor density_matrix_fix_l.pkl found in {folder}"
+        )
+
+    if len(data) != len(times):
+        raise ValueError(f"{folder}: {len(data)} snapshots but {len(times)} times.")
+    print(f"    on-site density from {source}")
+    return times, density
+
+
+def plot_onsite_density_diff_lmin_lmax(
+    onsite_density_data,
+    loaded_times,
+    corr_density,
+    times_corr,
+    sites=None,
+    average_sites=False,
+    save_path="/Users/yuliyabilinskaya/Desktop/topo_onsite_density_difference_lmin_lmax.pdf",
+    t_min=None,
+    t_max=None,
+    t_line=None,
+    figsize=(8, 4),
+    linewidth=0.8,
+    ylim=None,
+    quantity="diff",  # "diff" = n_corr - n_LITE, "lite" = n_LITE only
+):
+    """
+    Plots  n_corr(t, x) - n_LITE(t, x)  for every (lmin, lmax) run, at the common time
+    points only (no interpolation). Colour -> (lmin, lmax); one line per site.
+
+    onsite_density_data : dict {(lmin, lmax): array (n_times_LITE, L)}
+    loaded_times        : dict {(lmin, lmax): LITE times}
+    corr_density        : array (n_times_corr, L), full-system on-site density
+    sites               : None (all sites) | int (one site) | (first, last) inclusive range
+    average_sites       : if True, average the difference over the selected sites (one line per run)
+    """
+
+    if quantity not in ("diff", "lite"):
+        raise ValueError("quantity must be 'diff' or 'lite'")
+
+    corr_density = np.asarray(corr_density, dtype=float)
+    corr_times = np.array(times_corr, dtype=float)
+    L = corr_density.shape[1]
+
+    if sites is None:
+        site_list = list(range(L))
+    elif np.isscalar(sites):
+        site_list = [int(sites)]
+    else:
+        site_list = list(range(int(sites[0]), int(sites[1]) + 1))
+    if min(site_list) < 0 or max(site_list) >= L:
+        raise ValueError(f"sites must lie in [0, {L - 1}], got {sites}.")
+
+    fig, ax1 = plt.subplots(figsize=figsize)
+    colors = [
+        "#1b5e20",  # green
+        "#1565c0",  # blue
+        "#ef6c00",  # orange
+        "#6a1b9a",  # purple
+        "#c62828",
+        "#00897b",
+        "#8d6e63",
+    ]
+
+    for i, key in enumerate(onsite_density_data.keys()):
+        density_lite = np.asarray(onsite_density_data[key], dtype=float)
+        times_lite = np.asarray(loaded_times[key], dtype=float)
+
+        idx_corr, idx_lite = _match_common_times(corr_times, times_lite)
+        t_common = corr_times[idx_corr]
+        lite_part = density_lite[np.ix_(idx_lite, site_list)]
+        diff = (corr_density[np.ix_(idx_corr, site_list)] - lite_part
+                if quantity == "diff" else lite_part)
+
+        mask = np.ones(len(t_common), dtype=bool)
+        if t_min is not None:
+            mask &= t_common >= t_min
+        if t_max is not None:
+            mask &= t_common <= t_max
+        t_common, diff = t_common[mask], diff[mask]
+
+        if average_sites:
+            diff = diff.mean(axis=1, keepdims=True)
+
+        color = colors[i % len(colors)]
+        label = rf'$\ell_{{\min}}={key[0]}, \ell_{{\max}}={key[1]}$'
+        for s in range(diff.shape[1]):
+            ax1.plot(t_common, diff[:, s], '-', color=color, linewidth=linewidth,
+                     alpha=1.0 if diff.shape[1] == 1 else 0.6,
+                     label=label if s == 0 else None)       # one legend entry per run
+
+    if quantity == "diff":
+        ax1.axhline(0, color="black", linewidth=1.0, linestyle=":", alpha=0.7, zorder=1)
+    if t_line is not None:
+        ax1.axvline(t_line, color='black', linestyle='--', linewidth=1.0)
+    if ylim is not None:
+        ax1.set_ylim(ylim)
+
+    if average_sites:
+        site_txt = f"mean over sites {site_list[0]}-{site_list[-1]}"
+    elif len(site_list) == 1:
+        site_txt = f"site {site_list[0]}"
+    else:
+        site_txt = f"sites {site_list[0]}-{site_list[-1]}, one line per site"
+    ax1.set_xlabel('Time')
+    ax1.set_ylabel('On-site density: correlation matrix − LITE' if quantity == "diff"
+                   else 'On-site density: LITE')
+    ax1.legend()
+    plt.title(f"{'Difference in on-site density' if quantity == 'diff' else 'On-site density (LITE)'} ({site_txt})")
+    fig.tight_layout()
+
+    if save_path is not None:
+        plt.savefig(save_path, dpi=200, bbox_inches='tight')
+
+    plt.show()
+    plt.close(fig)
+
+
+def _load_onsite_family(results_dir, diss_strength, J, L, mu, init, dt=None):
+    """Load every (lmin, lmax) LITE run and the correlation-matrix on-site density."""
+    import os
+    import re
+
+    dt_suffix = f"_dt={dt}" if dt is not None else ""
+    corr_path = os.path.join(
+        results_dir,
+        f"opdm_t_corr_diss={diss_strength}_J={J:g}_mu={mu}_L={L}_init=mixed_{init}{dt_suffix}.h5",
+    )
+    pattern = re.compile(
+        rf"^xx_diss={diss_strength}_J={J}_h={mu}_L={L}_lmin=(\d+)_lmax=(\d+)_init={init}_mixed{re.escape(dt_suffix)}$"
+    )
+
+    onsite_density_all, loaded_times_all = {}, {}
+    for folder in sorted(os.listdir(results_dir)):
+        match = pattern.match(folder)
+        if match is None:
+            continue
+        key = (int(match.group(1)), int(match.group(2)))
+        print(f"(lmin={key[0]}, lmax={key[1]}):")
+        times_lite, density_lite = load_lite_onsite_density(os.path.join(results_dir, folder), L)
+        loaded_times_all[key] = times_lite
+        onsite_density_all[key] = density_lite
+
+    if not onsite_density_all:
+        raise FileNotFoundError(f"No LITE folders matching {pattern.pattern} in {results_dir}")
+
+    with tables.open_file(corr_path, mode="r") as h5:
+        opdm_t_corr = np.array(h5.root.opdm_t_corr.read())
+        times_corr = np.array(h5.root.times_corr.read())
+    corr_density = np.real(np.einsum("tii->ti", opdm_t_corr[:, :L, :L]))
+    del opdm_t_corr
+    return onsite_density_all, loaded_times_all, corr_density, times_corr
+
+
+def plot_onsite_density_3D_diff_lmin_lmax_family(
+    results_dir,
+    diss_strength,
+    J,
+    L,
+    mu,
+    init,
+    dt=None,
+    sites=None,
+    t_min=None,
+    t_max=None,
+    elev=50,
+    azim=-45,
+    shared_zlim=True,
+    quantity="diff",
+    max_time_points=400,
+    linewidth=0.8,
+    alpha=0.5,
+    save_path=None,
+
+):
+    """
+    Plot Delta n(t, x) = n_corr(t, x) - n_LITE(t, x) as 3D lines, in the same style as
+    plot_info_per_scale_diff_3d: one thin black line per time slice, running across the
+    sites (x axis) at fixed time (y axis), with the difference on the z axis.
+    One figure per (lmin, lmax) run.
+
+    sites           : None (all sites) or (first, last) inclusive range
+    shared_zlim     : same symmetric z-range in all figures, so the runs can be compared
+    max_time_points : the time axis is thinned to about this many slices
+    save_path       : if given, "<name>_lmin=<a>_lmax=<b><ext>" is written for every run
+    """
+
+    onsite_density_all, loaded_times_all, corr_density, times_corr = _load_onsite_family(
+        results_dir, diss_strength, J, L, mu, init, dt
+    )
+    corr_times = np.asarray(times_corr, dtype=float)
+
+    if sites is None:
+        site_list = list(range(L))
+    elif np.isscalar(sites):
+        raise ValueError("sites must be None or a (first, last) range for the 3D plot.")
+    else:
+        site_list = list(range(int(sites[0]), int(sites[1]) + 1))
+    if min(site_list) < 0 or max(site_list) >= L:
+        raise ValueError(f"sites must lie in [0, {L - 1}], got {sites}.")
+    sites_arr = np.array(site_list, dtype=float)
+
+    # ---- difference at the common times, for every run ----
+    panels = {}
+    for key, density_lite in onsite_density_all.items():
+        idx_corr, idx_lite = _match_common_times(corr_times, loaded_times_all[key])
+        t_common = corr_times[idx_corr]
+        corr_part = corr_density[np.ix_(idx_corr, site_list)]
+        lite_part = np.asarray(density_lite)[np.ix_(idx_lite, site_list)]
+        data = {"diff": corr_part - lite_part,
+                "corr": corr_part,
+                "lite": lite_part}[quantity]
+
+        mask = np.ones(len(t_common), dtype=bool)
+        if t_min is not None:
+            mask &= t_common >= t_min
+        if t_max is not None:
+            mask &= t_common <= t_max
+        t_common, data = t_common[mask], data[mask]
+
+        stride = max(1, len(t_common) // max_time_points)
+        panels[key] = (t_common[::stride], data[::stride])
+
+    allv = np.concatenate([d[np.isfinite(d)].ravel() for _, d in panels.values()])
+    if quantity == "diff":
+        zlim = (-np.abs(allv).max(), np.abs(allv).max())
+    else:
+        zlim = (allv.min(), allv.max())
+
+    label = {"diff": r"$n_{\rm corr}-n_{\rm LITE}$",
+             "corr": r"$n_{\rm corr}$",
+             "lite": r"$n_{\rm LITE}$"}[quantity]
+
+    for key, (t_plot, diff) in panels.items():
+        fig = plt.figure(figsize=(8, 6), dpi=300)
+        ax = fig.add_subplot(111, projection="3d")
+
+        # one line per site, running along time
+        for j, site in enumerate(site_list):
+            z = diff[:, j]
+            finite = np.isfinite(z)
+            if finite.sum() == 0:
+                continue
+            ax.plot(np.full(finite.sum(), float(site)), t_plot[finite], z[finite],
+                    color="black", linewidth=linewidth, alpha=alpha)
+
+        ax.set_xlabel("Site", fontsize=14)
+        ax.set_ylabel("Time", fontsize=14)
+        ax.set_zlabel(label, fontsize=14)
+        ax.set_xlim(site_list[0], site_list[-1])  # NEW
+        ax.set_ylim(t_plot.min(), t_plot.max())
+        if shared_zlim:
+            ax.set_zlim(*zlim)
+        ax.set_title(rf"$\ell_{{\min}}={key[0]},\ \ell_{{\max}}={key[1]}$", fontsize=12)
+        ax.view_init(elev=elev, azim=azim)
+
+        # ---- GIF with one frame per (lmin, lmax) run ----
+        import io
+        from PIL import Image
+        gif_path = "/Users/yuliyabilinskaya/Desktop/onsite_diff.gif"   # output file
+        sec_per_frame = 1.0
+        if key == list(panels.keys())[0]:
+            frames = []
+        buf = io.BytesIO()
+        fig.savefig(buf, format="png", dpi=150)
+        buf.seek(0)
+        frames.append(Image.open(buf).convert("RGB"))
+        if key == list(panels.keys())[-1]:
+            frames[0].save(gif_path, save_all=True, append_images=frames[1:],
+                           duration=int(1000 * sec_per_frame), loop=0)
+            print(f"Saved {gif_path}")
+
+        if save_path is not None:
+            import os
+            base, ext = os.path.splitext(save_path)
+            fig.savefig(f"{base}_lmin={key[0]}_lmax={key[1]}{ext}", dpi=200, bbox_inches="tight")
+
+        plt.show()
+        plt.close(fig)
+
+def plot_onsite_density_2D_diff_lmin_lmax_family(
+    results_dir, diss_strength, J, L, mu, init, dt=None, sites=None,
+    t_min=None, t_max=None, shared_clim=True, cmap="RdBu_r",
+    max_time_points=400, figsize=(8, 6), save_path=None,
+):
+    """
+    Heatmap (site on x, time on y) of n_corr - n_LITE for every (lmin, lmax) run.
+    One figure per run; colour scale is symmetric around zero.
+    """
+    onsite_density_all, loaded_times_all, corr_density, times_corr = _load_onsite_family(
+        results_dir, diss_strength, J, L, mu, init, dt)
+    corr_times = np.asarray(times_corr, dtype=float)
+
+    # --- site selection: None -> all, (a, b) -> inclusive range
+    if sites is None:
+        site_list = list(range(L))
+    elif isinstance(sites, (tuple, list)) and len(sites) == 2:
+        site_list = list(range(int(sites[0]), int(sites[1]) + 1))
+    else:
+        raise ValueError("sites must be None or a (first, last) range for a heatmap.")
+
+    # --- common-time matching, identical to the 3D function
+    panels = {}
+    for key, density_lite in onsite_density_all.items():
+        t_lite = np.asarray(loaded_times_all[key], dtype=float)
+        idx_lite, idx_corr = _match_common_times(t_lite, corr_times)
+        if len(idx_lite) == 0:
+            continue
+        t_common = t_lite[idx_lite]
+        if t_min is not None or t_max is not None:
+            mask = np.ones_like(t_common, dtype=bool)
+            if t_min is not None: mask &= t_common >= t_min
+            if t_max is not None: mask &= t_common <= t_max
+            idx_lite, idx_corr, t_common = idx_lite[mask], idx_corr[mask], t_common[mask]
+        if len(t_common) == 0:
+            continue
+        stride = max(1, int(np.ceil(len(t_common) / max_time_points)))
+        diff = (corr_density[np.ix_(idx_corr, site_list)]
+                - np.asarray(density_lite)[np.ix_(idx_lite, site_list)])
+        panels[key] = (t_common[::stride], diff[::stride])
+
+    if not panels:
+        print("No common times found.")
+        return
+
+    global_max = max(np.nanmax(np.abs(d)) for _, d in panels.values())
+    if global_max == 0:
+        global_max = 1e-16
+
+    for key, (t_plot, diff) in panels.items():
+        vmax = global_max if shared_clim else np.nanmax(np.abs(diff))
+        fig, ax = plt.subplots(figsize=figsize, dpi=300)
+        # pcolormesh with cell edges so non-uniform time grids are drawn correctly
+        x_edges = np.arange(site_list[0] - 0.5, site_list[-1] + 1.5, 1.0)
+        if len(t_plot) > 1:
+            mid = 0.5 * (t_plot[1:] + t_plot[:-1])
+            y_edges = np.concatenate(([t_plot[0] - (mid[0] - t_plot[0])], mid,
+                                      [t_plot[-1] + (t_plot[-1] - mid[-1])]))
+        else:
+            y_edges = np.array([t_plot[0] - 0.5, t_plot[0] + 0.5])
+        mesh = ax.pcolormesh(x_edges, y_edges, diff, cmap=cmap,
+                             vmin=-vmax, vmax=vmax, shading="flat", rasterized=True)
+        cbar = fig.colorbar(mesh, ax=ax)
+        cbar.set_label(r"$n_{\rm corr}-n_{\rm LITE}$", fontsize=14)
+        ax.set_xlabel("Site", fontsize=14)
+        ax.set_ylabel("Time", fontsize=14)
+        ax.set_title(rf"$\ell_{{\min}}={key[0]},\ \ell_{{\max}}={key[1]}$", fontsize=12)
+        fig.tight_layout()
+
+        if save_path is not None:
+            base, ext = os.path.splitext(save_path)
+            fig.savefig(f"{base}_lmin={key[0]}_lmax={key[1]}{ext or '.png'}",
+                        bbox_inches="tight")
+        plt.show()
+        plt.close(fig)
+
+def plot_onsite_density_diff_lmin_lmax_family(
+    results_dir,
+    diss_strength,
+    J,
+    L,
+    mu,
+    init,
+    dt=None,
+    sites=None,
+    average_sites=False,
+    save_path="/Users/yuliyabilinskaya/Desktop/topo_onsite_density_difference_lmin_lmax.pdf",
+    t_min=None,
+    t_max=None,
+    t_line=None,
+    figsize=(8, 4),
+    linewidth=0.8,
+    ylim=None,
+    quantity='diff',
+):
+    import os
+    import re
+
+    dt_suffix = f"_dt={dt}" if dt is not None else ""
+
+    corr_path = os.path.join(
+        results_dir,
+        f"opdm_t_corr_diss={diss_strength}_J={J:g}_mu={mu}_L={L}_init=mixed_{init}{dt_suffix}.h5",
+    )
+    pattern = re.compile(
+        rf"^xx_diss={diss_strength}_J={J}_h={mu}_L={L}_lmin=(\d+)_lmax=(\d+)_init={init}_mixed{re.escape(dt_suffix)}$"
+    )
+
+    onsite_density_all = {}
+    loaded_times_all = {}
+
+    for folder in sorted(os.listdir(results_dir)):
+        match = pattern.match(folder)
+        if match is None:
+            continue
+        key = (int(match.group(1)), int(match.group(2)))
+        print(f"(lmin={key[0]}, lmax={key[1]}):")
+        times_lite, density_lite = load_lite_onsite_density(os.path.join(results_dir, folder), L)
+        loaded_times_all[key] = times_lite
+        onsite_density_all[key] = density_lite
+
+    if not onsite_density_all:
+        raise FileNotFoundError(f"No LITE folders matching {pattern.pattern} in {results_dir}")
+
+    with tables.open_file(corr_path, mode="r") as h5:
+        opdm_t_corr = np.array(h5.root.opdm_t_corr.read())
+        times_corr = np.array(h5.root.times_corr.read())
+    # full-system on-site density: diagonal of the particle block of the 2L x 2L correlation matrix
+    corr_density = np.real(np.einsum("tii->ti", opdm_t_corr[:, :L, :L]))
+    del opdm_t_corr
+
+    return plot_onsite_density_diff_lmin_lmax(
+        onsite_density_data=onsite_density_all,
+        loaded_times=loaded_times_all,
+        corr_density=corr_density,
+        times_corr=times_corr,
+        sites=sites,
+        average_sites=average_sites,
+        save_path=save_path,
+        t_min=t_min,
+        t_max=t_max,
+        t_line=t_line,
+        figsize=figsize,
+        linewidth=linewidth,
+        ylim=ylim,
+        quantity=quantity,
+    )
+
+
 
 def plot_info_latt_from_state(results_dir, diss_strength, time=None, InfoLattice_Norm=2):
     """
