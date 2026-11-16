@@ -139,6 +139,9 @@ class RungeKuttaSolver(ABC):
             state.current_time,
         )
 
+        next_step_size = float(self.step_size)
+        endpoint_clipped = False
+
         repeat = True
         while repeat:
             total_high = LatticeDict()
@@ -201,29 +204,34 @@ class RungeKuttaSolver(ABC):
 
             # compare optimal step size to actual step size
             # (rejection of a step only happens in adaptive mode)
+            suggested_step = float(np.min(allowed_step_size) * 0.9)
             if self.config.adaptive_step and np.any(allowed_step_size < self.step_size):
                 # redo calculation with smaller stepsize
-                self.step_size = np.min(allowed_step_size) * 0.9
+                self.step_size = suggested_step
+                next_step_size = suggested_step
+                endpoint_clipped = False
             else:
                 # repeat to land exactly on the final time
+                if not endpoint_clipped:
+                    next_step_size = suggested_step
                 if (
                     final_time is not None
                     and current_time + self.step_size > final_time
                 ):
                     self.step_size = final_time - current_time
+                    endpoint_clipped = True
                 else:
                     time = current_time + self.step_size
-                    # update the step size (only in adaptive mode;
-                    # in fixed mode the step size is left untouched)
-                    if self.config.adaptive_step:
-                        self.step_size = np.min(allowed_step_size) * 0.9
+                    self.last_step_size = float(time - current_time)
+                    self.step_size = next_step_size
                     repeat = False
 
         tot = rho_dict + total_high
         tot_ct = (rho_dict + total_high).dagger()
 
         logger.info(
-            f"finished Runge-Kutta time step with adaptive stepsize {self.step_size}"
+            f"finished Runge-Kutta time step: accepted dt={self.last_step_size}, "
+            f"proposed next dt={self.step_size}"
         )
         return 0.5 * (tot + tot_ct), time
 
