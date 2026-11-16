@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import sys
+import math
 from dataclasses import dataclass, asdict, fields, field
 from datetime import datetime
 from pathlib import Path
@@ -55,9 +56,14 @@ class RungeKuttaConfig(Config):
     # True: adaptive step size with error control
     # False: integrate with the constant step_size, no error control
     adaptive_step: bool = True
+    # Half-width in nats for blending sqrt maps in RK, growth, and state construction.
+    # Zero keeps the sharp rule. Exponential recovery does not use this width.
+    petz_smoothing_delta: float = 0.0
 
     def __post_init__(self):
         assert self.max_error > 0, ValueError("max_error must be >0")
+        if not math.isfinite(self.petz_smoothing_delta) or self.petz_smoothing_delta < 0:
+            raise ValueError("petz_smoothing_delta must be finite and >= 0")
 
 
 @dataclass

@@ -37,8 +37,18 @@ from typing import TYPE_CHECKING, Sequence
 
 if TYPE_CHECKING:
     from local_information.typedefs import SystemOperator
+    from local_information.config.config import RungeKuttaConfig
 
 logger = logging.getLogger()
+
+def _petz_options(config: RungeKuttaConfig | None) -> dict:
+    """Resolve reconstruction options without a separate copy of the settings."""
+    if config is None:
+        return {"sqrt_method": True, "smoothing_delta": 0.0}
+    return {
+        "sqrt_method": config.petz_map == "sqrt",
+        "smoothing_delta": config.petz_smoothing_delta,
+    }
 
 
 class State:
@@ -48,18 +58,21 @@ class State:
     """
 
     def __init__(
-        self,
-        density_matrix: LatticeDict,
-        case: str = "finite",
-        starting_time: float = 0.0,
-        loaded_state: bool = False,
-        anchor: float = None,
+            self,
+            density_matrix: LatticeDict,
+            case: str = "finite",
+            starting_time: float = 0.0,
+            loaded_state: bool = False,
+            anchor: float = None,
+            *,
+            petz_config: RungeKuttaConfig | None = None,
     ):
         # boundary keys to keep track of the repeated parts at the boundaries (if necessary)
         self._state_boundary = StateBoundary.from_lattice_dict(
             density_matrix=density_matrix,
         )
         self._case = case
+        self.petz_config = petz_config
 
         # LatticeDict storing the density matrices with keys of the form (n,l)
         self.density_matrix = density_matrix
@@ -97,11 +110,18 @@ class State:
     def case(self) -> str:
         return self._case
 
+    @property
+    def petz_options(self) -> dict:
+        """Map choice and smoothing width shared by all state reconstructions."""
+        return _petz_options(self.petz_config)
+
     @classmethod
     def build_finite(
-        cls,
-        density_matrices: Sequence[np.ndarray],
-        level_overhead: int = 1,
+            cls,
+            density_matrices: Sequence[np.ndarray],
+            level_overhead: int = 1,
+            *,
+            petz_config: RungeKuttaConfig | None = None,
     ):
         """
         Builds the initial state given a sequence of density matrices. Assumes a finite system.
@@ -120,18 +140,14 @@ class State:
         # set the dyn_max_l to the dimension of the input + level_overhead
         dyn_max_l = max_dim - 1 + level_overhead
         state_dict, state_level = get_finite_state(
-            density_matrix_sequence=density_matrices, max_l=dyn_max_l
+            density_matrix_sequence=density_matrices, max_l=dyn_max_l,
+            **_petz_options(petz_config),
         )
-
-        return cls(state_dict)
+        return cls(state_dict, petz_config=petz_config)
 
     @classmethod
-    def build_asymptotic(
-        cls,
-        bulk_density_matrices: Sequence[np.ndarray],
-        boundary_density_matrices: Sequence[np.ndarray],
-        level_overhead: int = 1,
-    ):
+    def build_asymptotic(cls, bulk_density_matrices, boundary_density_matrices, level_overhead=1,
+                         *, petz_config: RungeKuttaConfig | None = None):
         """
         Builds an asymptotically invariant state. Boundary density matrices are assumed to repeat infinitely.
         Example: The initial state deviates from the infinite temperature state on only a few sites.
@@ -161,20 +177,26 @@ class State:
         # set the dyn_max_l to the dimension of the input + level_overhead
         dyn_max_l = max_dim - 1 + level_overhead
         bulk, state_level = get_finite_state(
-            density_matrix_sequence=bulk_density_matrices, max_l=dyn_max_l
+            density_matrix_sequence=bulk_density_matrices, max_l=dyn_max_l,
+            **_petz_options(petz_config),
         )
         boundaries = get_boundaries(
-            density_matrix_sequence=boundary_density_matrices, max_l=dyn_max_l
+            density_matrix_sequence=boundary_density_matrices, max_l=dyn_max_l,
+            **_petz_options(petz_config),
         )
-        combined = get_combined(bulk=bulk, boundaries=boundaries, level=dyn_max_l)
-
-        return cls(combined, case="asymptotic")
+        combined = get_combined(
+            bulk=bulk, boundaries=boundaries, level=dyn_max_l,
+            **_petz_options(petz_config),
+        )
+        return cls(combined, case="asymptotic", petz_config=petz_config)
 
     @classmethod
     def build(
-        cls,
-        density_matrix_list: Sequence[Sequence[np.ndarray]],
-        level_overhead: int = 1,
+            cls,
+            density_matrix_list: Sequence[Sequence[np.ndarray]],
+            level_overhead: int = 1,
+            *,
+            petz_config: RungeKuttaConfig | None = None,
     ) -> State:
         """
         :param Sequence[Sequence[np.ndarray]] density_matrix_list: list of lists of np.ndarray indicating structure and
@@ -196,10 +218,12 @@ class State:
                 bulk_density_matrices=bulk_density_matrices,
                 boundary_density_matrices=boundary_density_matrices,
                 level_overhead=level_overhead,
+                petz_config=petz_config,
             )
         elif bulk_density_matrices and not boundary_density_matrices:
             return State.build_finite(
-                density_matrices=bulk_density_matrices, level_overhead=level_overhead
+                density_matrices=bulk_density_matrices, level_overhead=level_overhead,
+                petz_config=petz_config,
             )
         else:
             raise ValueError("Empty input not allowed")
@@ -405,6 +429,7 @@ class State:
                 input_lattice=temp_dict,
                 key=lower_level_key,
                 next_key=new_lower_level_key,
+                **self.petz_options,
             )
 
         self.density_matrix[new_rightmost_key] = temp_dict[new_rightmost_key]
@@ -435,8 +460,9 @@ class State:
             temp_dict[lower_level_key] = lower_boundary_density_matrix
             temp_dict += add_higher_level_site(
                 input_lattice=temp_dict,
-                key=new_lower_level_key,
-                next_key=lower_level_key,
+                key=lower_level_key,
+                next_key=new_lower_level_key,
+                **self.petz_options,
             )
 
         self.density_matrix[new_leftmost_key] = temp_dict[new_leftmost_key]
@@ -501,7 +527,9 @@ class State:
         if any([inf_value > threshold for inf_value in temp_inf_dict.values()]):
             # get higher level density matrices
             for _ in range(nr_of_updates):
-                rho_dict_updated = get_higher_level(self.density_matrix, self.dyn_max_l)
+                rho_dict_updated = get_higher_level(
+                    self.density_matrix, self.dyn_max_l, **self.petz_options
+                )
 
                 if RANK == 0:
                     self.density_matrix = rho_dict_updated

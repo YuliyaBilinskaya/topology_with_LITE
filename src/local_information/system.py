@@ -35,6 +35,7 @@ class System(ABC):
         self.state = init_state
         # config dataclass
         self.config = config
+        self.state.petz_config = self.config.runge_kutta_config
         # TimeEvolutionData
         self.data = data
         # Operator for time-evolution

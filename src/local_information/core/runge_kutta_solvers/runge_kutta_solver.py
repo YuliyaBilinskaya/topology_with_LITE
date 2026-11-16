@@ -201,7 +201,8 @@ class RungeKuttaSolver(ABC):
             # petz_map the density matrices at level max_l +_range
             for r in range(self.range_):
                 work_dict += get_higher_level(
-                    work_dict, dyn_max_l + r, sqrt_method=sqrt_method
+                    work_dict, dyn_max_l + r, sqrt_method=sqrt_method,
+                    smoothing_delta=self.config.petz_smoothing_delta,
                 )
         if work_dict is not None:
             key_max_l_dim = work_dict.dim_at_level(dyn_max_l)
