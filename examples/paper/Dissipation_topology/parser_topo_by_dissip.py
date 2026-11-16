@@ -36,7 +36,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--steps", help='Number of time steps', type=int, default=2)
     parser.add_argument("--epsilon", help='Mixedness of the initial state. eps=0.5 is max mixed', type=float, default=0.2)
     parser.add_argument("--shift", type=int, default=0)
-    parser.add_argument("--evolve-time", help='One time step length', type=float, default=2.0)
+    parser.add_argument("--evolve-time", help='One time step length', type=float, default=1.0)
     parser.add_argument("--step-size", help='Time integrator step size', type=float, default=0.01)
     parser.add_argument("--fixed-step", action="store_true",
                         help="Use a constant Runge-Kutta step (--step-size) instead of the adaptive one.")
