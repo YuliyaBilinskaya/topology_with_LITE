@@ -40,6 +40,8 @@ class DataConfig:
     info_current: bool = False
     diffusion_length: bool = False
     diffusion_const: bool = False
+    integration_step: bool = False
+    proposed_step: bool = False
     energy_distribution: bool = False
     times: bool = True
     system_size: bool = True
@@ -85,6 +87,11 @@ class DataConfig:
             # load yaml
             with open(config_path, "r") as file:
                 loaded_dict = yaml.safe_load(file)
+
+        for name in ("integration_step", "proposed_step"):
+            if name in loaded_dict.get("observables", []):
+                loaded_dict[name] = True
+                loaded_dict["observables"] = [n for n in loaded_dict["observables"] if n != name]
 
         # setup observables if needed
         if loaded_dict["observables"]:
@@ -165,15 +172,16 @@ class DataContainer:
         information_dict: LatticeDict,
         state: State,
         operator: SystemOperator,
+        solver=None,
     ):
         for observable_name, data_list in self.default_observables_dict.items():
-            # call the helper class to compute all default observables
             observable_result = self.get_default_observables(
                 observable=observable_name,
                 density_matrix=density_matrix,
                 information_dict=information_dict,
                 state=state,
                 operator=operator,
+                solver=solver,
             )
             if observable_result is not None:
                 data_list.append(observable_result)
@@ -305,7 +313,7 @@ class DataContainer:
     def return_latest(self) -> dict:
         """Return last updated values."""
         latest_values = dict()
-        for observable_name, observable_values in self.custom_observables_dict.items():
+        for observable_name, observable_values in (self.custom_observables_dict or {}).items():
             if len(observable_values) == 0:
                 latest_values[observable_name] = None
             else:
@@ -325,7 +333,9 @@ class DefaultObservables:
     operator: SystemOperator = None
     density_matrix: LatticeDict = None
 
-    def __init__(self, config: DataConfig):
+    solver = None
+
+    def __init__(self, config: DataConfig = None):
         self.config = config
         self.observables = {
             "diffusion_const": self.get_diffusion_const,
@@ -337,6 +347,8 @@ class DefaultObservables:
             "info_current": self.get_information_current,
             "density_matrix": self.get_density_matrix,
             "density_matrix_fix_l": self.get_density_matrix,
+            "integration_step": self.get_integration_step,
+            "proposed_step": self.get_proposed_step,
         }
 
     def __call__(
@@ -346,11 +358,13 @@ class DefaultObservables:
         information_dict: LatticeDict[float],
         state: State,
         operator: SystemOperator,
+        solver=None,
     ) -> Any:
         self.state = state
         self.operator = operator
         self.density_matrix = density_matrix
         self.information_dict = information_dict
+        self.solver = solver
 
         if observable in self.observables and RANK == 0:
             observable_result = self.compute_observable(observable)
@@ -390,6 +404,16 @@ class DefaultObservables:
     def get_density_matrix(self):
         if self.config.density_matrix_fix_l is None:
             return self.density_matrix
+
+    def get_integration_step(self) -> float | None:
+        if self.solver is None:
+            return None
+        return self.solver.last_step_size
+
+    def get_proposed_step(self) -> float | None:
+        if self.solver is None:
+            return None
+        return self.solver.step_size
 
         rho = self.density_matrix.deepcopy()
         l_fix = self.config.density_matrix_fix_l

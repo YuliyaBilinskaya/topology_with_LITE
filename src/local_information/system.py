@@ -206,6 +206,7 @@ class System(ABC):
             information_dict=information_dict,
             state=self.state,
             operator=self._system_operator,
+            solver=self.solver,
         )
         self.data.update_custom_observables(density_matrices_on_all_levels)
 
