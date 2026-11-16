@@ -108,10 +108,10 @@ opdm_t_corr, times_corr, ave_marker_per_t_lite, loaded_times = load_all_data(
 plot_onsite_density_diff_lmin_lmax_family(
     results_dir=data_filepath,
     diss_strength=diss_strength, J=J, L=L, mu=mu, init=init, dt=dt,
-    sites=(20,30),          # None -> every site | 25 -> one site | (20, 30) -> inclusive range
+    sites=(0,49),          # None -> every site | 25 -> one site | (20, 30) -> inclusive range
     average_sites=True,
     t_min=None, t_max=None,
-    quantity='lite',
+    quantity='lite_corr', #'diff' plots the difference between corr and lite, 'lite' plots only lite, 'lite_corr' plots both
 )
 
 #plot_onsite_density_3D_diff_lmin_lmax_family(

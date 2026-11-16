@@ -286,7 +286,7 @@ def plot_info_lattice_currents(corr_mat, L, J, gamma, h, t,
         if l <= ell_lo:
             continue
         x, y = pos(l, n)
-        for val, nb in [(I_tL.get((l, n), 0.0), n), (I_tR.get((l, n), 0.0), n + 1)]:
+        for val, nb in [(I_tR.get((l-1, n), 0.0), n), (I_tL.get((l-1, n+1), 0.0), n + 1)]:
             xc, yc = pos(l - 1, nb)
             edges.append((x, y, xc, yc, val))  # (parent, child, val)
 
@@ -321,7 +321,7 @@ def plot_info_lattice_currents(corr_mat, L, J, gamma, h, t,
     xs = [pos(l, n)[0] for l, n in nodes]
     ys = [pos(l, n)[1] for l, n in nodes]
     ivals = np.array([info[l][n] for l, n in nodes])
-    node_norm = Normalize(vmin=0, vmax=1.0)
+    node_norm = Normalize(vmin=0, vmax=ivals.max()) # vmax=1.0)
 
     scat = ax.scatter(xs, ys, c=ivals, cmap=node_cmap, norm=node_norm,
                       s=300, zorder=5, edgecolors='k', lw=0.5)
@@ -452,3 +452,106 @@ def save_gif_info_lattice_currents(opdm_t_corr, times_corr, L, J, gamma, h,
         loop=loop, duration=int(1000 / fps),
     )
     print(f'Saved GIF ({len(frames)} frames) → {save_path}')
+
+
+def plot_interlevel_current(opdm_t_corr, times_corr, L, J, gamma, h,
+                            ell_specs, t_idx=None, ax=None,
+                            direction='curr_ell->ell-1'):
+    """
+    Plot inter-level tilde currents for one or several scales.
+
+    For each ell in ell_specs, computes Σ_n of the positive or negative part
+    of [ I_tL(ell,n) + I_tR(ell,n) ] depending on `direction`:
+
+    direction='curr_ell->ell-1' : positive part (downward, ell -> ell-1)
+    direction='curr_ell-1->ell' : negative part magnitude (upward, ell-1 -> ell)
+    direction='both'            : plots both lines per ell
+
+    Parameters
+    ----------
+    opdm_t_corr : (N, 2L, 2L) array of correlation matrices
+    times_corr  : (N,) array of times
+    L, J, gamma, h : system parameters
+    ell_specs : int or list of ints — scales where tilde currents are computed
+    t_idx : last time index to include (None = all)
+    direction : one of 'curr_ell->ell-1', 'curr_ell-1->ell', 'both'
+
+    Returns
+    -------
+    ax, times_slice, current_dict
+        current_dict maps ell -> (T,) array for single direction,
+        or ell -> {'down': (T,), 'up': (T,)} for 'both'
+    """
+    if isinstance(ell_specs, int):
+        ell_specs = [ell_specs]
+
+    corr_slice  = opdm_t_corr[:t_idx]
+    times_slice = times_corr[:t_idx]
+
+    def _currents_all(corr):
+        I_tL, I_tR, _, _ = calc_all_info_currents(corr, L, J, gamma, h)
+        result = {}
+        for ell in ell_specs:
+            # Bond between (ell,n) and left child (ell-1,n):  I_tR(ell-1, n)
+            # Bond between (ell,n) and right child (ell-1,n+1): I_tL(ell-1, n+1)
+            # Iterate over parent nodes n in range(L - ell)
+            down = sum(
+                max(I_tR.get((ell-1, n),   0.0), 0)
+              + max(I_tL.get((ell-1, n+1), 0.0), 0)
+                for n in range(L - ell)
+            )
+            up = sum(
+                max(-I_tR.get((ell-1, n),   0.0), 0)
+              + max(-I_tL.get((ell-1, n+1), 0.0), 0)
+                for n in range(L - ell)
+            )
+            result[ell] = (down, up)
+        return result
+
+    rows = [_currents_all(corr) for corr in corr_slice]
+
+    if direction == 'both':
+        current_dict = {
+            ell: {
+                'down': np.array([r[ell][0] for r in rows]),
+                'up':   np.array([r[ell][1] for r in rows]),
+            }
+            for ell in ell_specs
+        }
+    elif direction == 'curr_ell->ell-1':
+        current_dict = {ell: np.array([r[ell][0] for r in rows]) for ell in ell_specs}
+    elif direction == 'curr_ell-1->ell':
+        current_dict = {ell: np.array([r[ell][1] for r in rows]) for ell in ell_specs}
+    else:
+        raise ValueError(f"direction must be 'curr_ell->ell-1', 'curr_ell-1->ell', or 'both'; got {direction!r}")
+
+    if ax is None:
+        _, ax = plt.subplots(figsize=(7, 4))
+
+    prop_cycle = plt.rcParams['axes.prop_cycle'].by_key()['color']
+    for i, ell in enumerate(ell_specs):
+        color = prop_cycle[i % len(prop_cycle)]
+        if direction == 'both':
+            ax.plot(times_slice, current_dict[ell]['down'], color=color,
+                    label=rf'$\ell={ell} \to \ell={ell-1}$')
+            ax.plot(times_slice, current_dict[ell]['up'], color=color, ls='--',
+                    label=rf'$\ell={ell-1} \to \ell={ell}$')
+        elif direction == 'curr_ell->ell-1':
+            ax.plot(times_slice, current_dict[ell], color=color,
+                    label=rf'$\ell={ell} \to \ell={ell-1}$')
+        else:
+            ax.plot(times_slice, current_dict[ell], color=color,
+                    label=rf'$\ell={ell-1} \to \ell={ell}$')
+
+    ax.axhline(0, color='k', lw=0.5, ls='--')
+    ax.set_xlabel(r'$t$')
+    if direction == 'curr_ell->ell-1':
+        ax.set_ylabel(r'$\sum_n\,[\tilde{\mathcal{I}}_L(\ell,n) + \tilde{\mathcal{I}}_R(\ell,n)]_+$')
+    elif direction == 'curr_ell-1->ell':
+        ax.set_ylabel(r'$\sum_n\,[\tilde{\mathcal{I}}_L(\ell,n) + \tilde{\mathcal{I}}_R(\ell,n)]_-$')
+    else:
+        ax.set_ylabel(r'$\sum_n\,|\tilde{\mathcal{I}}_L(\ell,n) + \tilde{\mathcal{I}}_R(\ell,n)|_\pm$')
+    ax.set_title(r'Inter-level currents')
+    ax.legend(title='Current:')
+
+    return ax, times_slice, current_dict

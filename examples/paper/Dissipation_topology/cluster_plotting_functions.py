@@ -1031,8 +1031,8 @@ def plot_onsite_density_diff_lmin_lmax(
     average_sites       : if True, average the difference over the selected sites (one line per run)
     """
 
-    if quantity not in ("diff", "lite"):
-        raise ValueError("quantity must be 'diff' or 'lite'")
+    if quantity not in ("diff", "lite", "lite_corr"):
+        raise ValueError("quantity must be 'diff', 'lite', or 'lite_corr'")
 
     corr_density = np.asarray(corr_density, dtype=float)
     corr_times = np.array(times_corr, dtype=float)
@@ -1085,6 +1085,22 @@ def plot_onsite_density_diff_lmin_lmax(
                      alpha=1.0 if diff.shape[1] == 1 else 0.6,
                      label=label if s == 0 else None)       # one legend entry per run
 
+    if quantity == "lite_corr":
+        corr_part = corr_density[:, site_list]
+        mask_c = np.ones(len(corr_times), dtype=bool)
+        if t_min is not None:
+            mask_c &= corr_times >= t_min
+        if t_max is not None:
+            mask_c &= corr_times <= t_max
+        t_corr_plot = corr_times[mask_c]
+        corr_part = corr_part[mask_c]
+        if average_sites:
+            corr_part = corr_part.mean(axis=1, keepdims=True)
+        for s in range(corr_part.shape[1]):
+            ax1.plot(t_corr_plot, corr_part[:, s], '--', color='black', linewidth=linewidth,
+                     alpha=1.0 if corr_part.shape[1] == 1 else 0.6,
+                     label='corr' if s == 0 else None)
+
     if quantity == "diff":
         ax1.axhline(0, color="black", linewidth=1.0, linestyle=":", alpha=0.7, zorder=1)
     if t_line is not None:
@@ -1099,10 +1115,15 @@ def plot_onsite_density_diff_lmin_lmax(
     else:
         site_txt = f"sites {site_list[0]}-{site_list[-1]}, one line per site"
     ax1.set_xlabel('Time')
-    ax1.set_ylabel('On-site density: correlation matrix − LITE' if quantity == "diff"
-                   else 'On-site density: LITE')
+    _ylabel = {'diff': 'On-site density: correlation matrix − LITE',
+               'lite': 'On-site density: LITE',
+               'lite_corr': 'On-site density'}
+    _title  = {'diff': 'Difference in on-site density',
+               'lite': 'On-site density (LITE)',
+               'lite_corr': 'On-site density (LITE + corr)'}
+    ax1.set_ylabel(_ylabel[quantity])
     ax1.legend()
-    plt.title(f"{'Difference in on-site density' if quantity == 'diff' else 'On-site density (LITE)'} ({site_txt})")
+    plt.title(f"{_title[quantity]} ({site_txt})")
     fig.tight_layout()
 
     if save_path is not None:
