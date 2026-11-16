@@ -55,7 +55,7 @@ class Projector:
         for j in range(length):
             for k in range(j + 1):
                 if density_matrix_eigenvalues[j] != density_matrix_eigenvalues[k]:
-                    matrix[j, k] = -arctanh(
+                    matrix[j, k] = -2.0 * arctanh(
                         (density_matrix_eigenvalues[j] - density_matrix_eigenvalues[k])
                         / (
                             density_matrix_eigenvalues[j]
@@ -63,7 +63,7 @@ class Projector:
                         )
                     ) / (density_matrix_eigenvalues[j] - density_matrix_eigenvalues[k])
                 else:
-                    matrix[j, k] = -1 / (
+                    matrix[j, k] = -2.0 / (
                         density_matrix_eigenvalues[j] + density_matrix_eigenvalues[k]
                     )
 
