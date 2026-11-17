@@ -104,7 +104,11 @@ def compute_mutual_information_at_level(
     Returns the mutual information together with the lower density matrices at level 'ell - 1'.
     """
     work_dict = rho_dict.deepcopy()
-    # compute 2 lower levels and stores them in a separate LatticeDict
+    # Rebuild reductions only from the requested level. LatticeDict addition
+    # sums shared keys, so keeping cached lower levels would double their
+    # matrices (and traces) when the fresh reductions are added below.
+    work_dict.kill_all_except(level)
+    # compute 2 lower levels...
     inf_dict = compute_von_Neumann_information(work_dict, level)
 
     # scatter `ell` from root
