@@ -404,6 +404,14 @@ class DefaultObservables:
     def get_density_matrix(self):
         if self.config.density_matrix_fix_l is None:
             return self.density_matrix
+        rho = self.density_matrix.deepcopy()
+        l_fix = self.config.density_matrix_fix_l
+
+        for key in list(rho.keys()):
+            if key.level > l_fix:
+                rho.pop(key, None)
+
+        return rho
 
     def get_integration_step(self) -> float | None:
         if self.solver is None:
@@ -415,11 +423,4 @@ class DefaultObservables:
             return None
         return self.solver.step_size
 
-        rho = self.density_matrix.deepcopy()
-        l_fix = self.config.density_matrix_fix_l
 
-        for key in list(rho.keys()):
-            if key.level > l_fix:
-                rho.pop(key, None)
-
-        return rho
